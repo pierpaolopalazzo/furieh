@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>furiè UniFG - SRAW Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600&display=swap');
+
+  :root {
+    --bg:      #07090c;
+    --panel:   #0d1016;
+    --border:  #1a2030;
+    --accent:  #00e5ff;
+    --accent2: #ffb300;
+    --red:     #ff4060;
+    --green:   #00ff88;
+    --text:    #b8c4d8;
+    --muted:   #4a5568;
+    --mono:    'Share Tech Mono', monospace;
+    --sans:    'Barlow', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+
+  #header h1 {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+
+  #header a {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  #header a:hover { color: var(--accent); }
+
+  #toolbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .tb-group { display: flex; align-items: center; gap: 8px; }
+
+  .tb-label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .tb-btn {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .tb-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .tb-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,229,255,0.08);
+  }
+
+  .tb-select {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    outline: none;
+  }
+
+
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  #info-panel {
+    width: 220px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+
+  #info-panel h3 {
+    color: var(--accent2);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid #111820;
+    gap: 8px;
+  }
+
+  .info-key { color: var(--muted); }
+  .info-val { color: var(--text); text-align: right; }
+
+  #statusbar {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 4px 20px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    display: flex;
+    gap: 24px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  #statusbar span { color: var(--text); }
+
+  #error-msg {
+    display: none;
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a0008;
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    padding: 10px 20px;
+    z-index: 100;
+    max-width: 80%;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>furiè UniFG - SRAW_VIEWER</h1>
+  <a href="../index.php">← Launcher</a>
+  <span style="flex:1"></span>
+  <span id="filename" style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">nessun file caricato</span>
+</div>
+
+<div id="toolbar">
+  <div class="tb-group">
+    <span class="tb-label">File</span>
+    <button class="tb-btn" id="btn-open-data" onclick="fileBrowser.open({
+      mode: 'load', filter: 'sraw',
+      onPick: (rel, text) => loadText(text, rel)
+    })">⬆ Apri da /data</button>
+  </div>
+
+  <div class="tb-group">
+    <span class="tb-label">Asse</span>
+    <button class="tb-btn active" id="btn-time" onclick="setDomain('time')">TEMPO</button>
+    <button class="tb-btn" id="btn-freq" onclick="setDomain('freq')">FREQ</button>
+  </div>
+
+  <div class="tb-group">
+    <span class="tb-label">Vista</span>
+    <button class="tb-btn active" id="btn-re" onclick="setView('re')">Re</button>
+    <button class="tb-btn" id="btn-im" onclick="setView('im')">Im</button>
+    <button class="tb-btn" id="btn-mag" onclick="setView('mag')">|·|</button>
+    <button class="tb-btn" id="btn-ph" onclick="setView('ph')">∠</button>
+  </div>
+
+  <div class="tb-group">
+    <span class="tb-label">Zoom rotella</span>
+    <select class="tb-select" id="zoom-mode">
+      <option value="xy">X &amp; Y</option>
+      <option value="x">solo X</option>
+      <option value="y">solo Y</option>
+    </select>
+  </div>
+
+  <div class="tb-group">
+    <button class="tb-btn" onclick="resetZoom()">Reset zoom</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="canvas-wrap">
+    <canvas id="cv"></canvas>
+    <div id="error-msg"></div>
+  </div>
+
+  <div id="info-panel">
+    <h3>Info file</h3>
+    <div id="info-rows"></div>
+  </div>
+</div>
+
+<div id="statusbar">
+  <div>x: <span id="st-x">—</span></div>
+  <div>y: <span id="st-y">—</span></div>
+  <div>campioni: <span id="st-n">—</span></div>
+  <div>render: <span id="st-render">—</span></div>
+</div>
+
+<script src="../shared/sraw_shared.js"></script>
+<script>
+const fileBrowser = new SrawFileBrowser({ phpRoot: '../' });
+
+// ── Viewer-local state ────────────────────────────────────────
+let C = null;          // conf — set by loadConf()
+let sraw = null;       // parsed SrawData
+let domain   = 'time'; // 'time' | 'freq'
+let viewMode = 're';   // 're' | 'im' | 'mag' | 'ph'
+let vp = { xMin: 0, xMax: 1, yMin: -1, yMax: 1 };
+let pan = { active: false, startX: 0, startY: 0, vpStart: null };
+let lastRenderInfo = '—';
+
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// ── Physical unit helpers ─────────────────────────────────────
+function xPhys(idx)    { return domain === 'time' ? idx * C.TIME_RES : idx * C.FREQ_RES; }
+function xUnit()       { return domain === 'time' ? 's' : 'Hz'; }
+function yPhys(intVal) {
+  if (viewMode === 'ph')  return intVal;
+  if (viewMode === 'mag') return intVal * (domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES);
+  return intVal * (domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES);
+}
+function yUnit() {
+  if (viewMode === 'ph')  return 'rad';
+  return domain === 'time' ? 'V' : 'Vs';
+}
+
+// ── Value extractors ──────────────────────────────────────────
+function valueFromReIm(re, im) {
+  switch (viewMode) {
+    case 're':  return re;
+    case 'im':  return im;
+    case 'mag': return Math.hypot(re, im);
+    case 'ph':  return Math.atan2(im, re);
+    default:    return re;
+  }
+}
+function valueFromSample(s) { return valueFromReIm(s.re, s.im); }
+
+function getY(samples, xq) {
+  // Phase must use the nearest real knot — interpolating re/im through zero
+  // produces spurious atan2 sweeps that fill the plot with solid rectangles.
+  if (viewMode === 'ph') {
+    const s = nearestSample(samples, xq);
+    return Math.atan2(s.im, s.re);
+  }
+  const { re, im } = interpolate(samples, xq);
+  return valueFromReIm(re, im);
+}
+
+// ── Viewport ──────────────────────────────────────────────────
+function computeDataBounds() {
+  if (!sraw || sraw.samples.length === 0) return null;
+  const samples = sraw.samples;
+  let xMin = samples[0].x, xMax = samples[0].x;
+  let yMin = valueFromSample(samples[0]), yMax = yMin;
+  for (let i = 1; i < samples.length; i++) {
+    const s = samples[i];
+    if (s.x < xMin) xMin = s.x;
+    if (s.x > xMax) xMax = s.x;
+    const y = valueFromSample(s);
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+  return { xMin, xMax, yMin, yMax };
+}
+
+function fitViewport() {
+  const b = computeDataBounds();
+  if (!b) return;
+  let { xMin, xMax, yMin, yMax } = b;
+  if (xMin === xMax) { xMin -= 1; xMax += 1; }
+  const xPad = (xMax - xMin) * 0.05;
+  if (viewMode === 'ph') {
+    vp = { xMin: xMin - xPad, xMax: xMax + xPad, yMin: -Math.PI, yMax: Math.PI };
+    return;
+  }
+  if (yMin === yMax) { yMin -= 1; yMax += 1; }
+  const yPad = (yMax - yMin) * 0.10;
+  vp = { xMin: xMin - xPad, xMax: xMax + xPad, yMin: yMin - yPad, yMax: yMax + yPad };
+}
+
+function resetZoom() { fitViewport(); draw(); }
+
+// ── Draw ──────────────────────────────────────────────────────
+function resize() {
+  cv.width  = Math.max(1, Math.floor(cv.offsetWidth  * devicePixelRatio));
+  cv.height = Math.max(1, Math.floor(cv.offsetHeight * devicePixelRatio));
+  draw();
+}
+
+function draw() {
+  if (!C) return;
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#07090c';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!sraw) {
+    ctx.fillStyle = '#1a2030';
+    ctx.font = `${14 * devicePixelRatio}px 'Share Tech Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Nessun file caricato — trascina un .sraw o clicca "Apri"', W / 2, H / 2);
+    document.getElementById('st-render').textContent = '—';
+    return;
+  }
+
+  const yHardMin = viewMode === 'ph' ? -Math.PI : -C.AMP_INT_MAX;
+  const yHardMax = viewMode === 'ph' ?  Math.PI :  C.AMP_INT_MAX;
+
+  drawOutOfRangeZones(W, H, sraw.axisMode, yHardMin, yHardMax);
+  drawGridAndAxes(W, H,
+    x => fmtNum(xPhys(x)) + xUnit(),
+    y => fmtNum(yPhys(y)) + yUnit()
+  );
+  const renderInfo = drawSignal(
+    sraw.samples, W, H,
+    valueFromSample, getY,
+    '#00e5ff', viewMode === 'ph'
+  );
+  drawKnots(sraw.samples, W, H, valueFromSample, '#00e5ff');
+  lastRenderInfo = renderInfo;
+  document.getElementById('st-render').textContent = lastRenderInfo;
+}
+
+// ── Domain / view switching (preserve zoom) ───────────────────
+function setDomain(d) {
+  domain = d;
+  document.getElementById('btn-time').classList.toggle('active', d === 'time');
+  document.getElementById('btn-freq').classList.toggle('active', d === 'freq');
+  updateInfoPanel();
+  draw();
+}
+
+function setView(v) {
+  const prev = viewMode;
+  viewMode = v;
+  ['re', 'im', 'mag', 'ph'].forEach(k => {
+    document.getElementById('btn-' + k).classList.toggle('active', k === v);
+  });
+  const phaseInvolved = (prev === 'ph') !== (v === 'ph');
+  if (phaseInvolved) {
+    const b = computeDataBounds();
+    if (b) {
+      if (v === 'ph') {
+        vp = { xMin: vp.xMin, xMax: vp.xMax, yMin: -Math.PI, yMax: Math.PI };
+      } else {
+        const yPad = (b.yMax - b.yMin) * 0.10;
+        vp = { xMin: vp.xMin, xMax: vp.xMax, yMin: b.yMin - yPad, yMax: b.yMax + yPad };
+      }
+    }
+  }
+  updateInfoPanel();
+  draw();
+}
+
+// ── Info panel ────────────────────────────────────────────────
+function updateInfoPanel() {
+  const el = document.getElementById('info-rows');
+  if (!sraw) { el.innerHTML = ''; return; }
+  const samples = sraw.samples;
+  let xMin = samples[0].x, xMax = samples[0].x;
+  for (let i = 1; i < samples.length; i++) {
+    if (samples[i].x < xMin) xMin = samples[i].x;
+    if (samples[i].x > xMax) xMax = samples[i].x;
+  }
+  const span  = xPhys(xMax) - xPhys(xMin);
+  const yTheo = C.AMP_INT_MAX * (domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES);
+  const rows = [
+    ['campioni',  samples.length],
+    ['axis_mode', sraw.axisMode],
+    ['x_min (idx)', xMin],
+    ['x_max (idx)', xMax],
+    [domain === 'time' ? 't_min' : 'f_min', fmtNum(xPhys(xMin)) + xUnit()],
+    [domain === 'time' ? 't_max' : 'f_max', fmtNum(xPhys(xMax)) + xUnit()],
+    ['span', fmtNum(span) + xUnit()],
+    [domain === 'time' ? 'y_max teorico' : 'Y_max teorico', `${fmtNum(yTheo)}${yUnit()}`],
+  ];
+  el.innerHTML = rows.map(([k, v]) =>
+    `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${v}</span></div>`
+  ).join('');
+}
+
+// ── File loading ──────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function loadText(text, name) {
+  try {
+    sraw = parseSraw(text);
+    document.getElementById('filename').textContent = name;
+    document.getElementById('st-n').textContent = sraw.samples.length;
+    fitViewport();
+    updateInfoPanel();
+    draw();
+  } catch (e) {
+    showError('Errore parsing: ' + e.message);
+  }
+}
+
+
+const canvasWrap = document.getElementById('canvas-wrap');
+
+// ── Pan / zoom ────────────────────────────────────────────────
+bindPanZoom({
+  getZoomMode: () => document.getElementById('zoom-mode').value,
+  onUpdate: draw,
+  onMouseMove: (wx, wy) => {
+    document.getElementById('st-x').textContent = fmtNum(xPhys(wx)) + xUnit();
+    document.getElementById('st-y').textContent = fmtNum(yPhys(wy)) + yUnit();
+  },
+});
+
+new ResizeObserver(resize).observe(cv);
+
+// Boot: load conf first, then render
+loadConf('../../conf/sraw.conf')
+  .then(conf => { C = conf; resize(); })
+  .catch(err  => { showError('Errore caricamento sraw.conf: ' + err.message); });
+</script>
+</body>
+</html>

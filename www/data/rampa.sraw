@@ -1,0 +1,8 @@
+SRAW-1
+# Esempio: rampa(t) — rampa lineare crescente, t in [0, 12.5s], da 0V a 5V
+axis_mode,symmetric
+data
+-1000000,0,0
+0,0,0
+999992,500000,0
+999999,500000,0

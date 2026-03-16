@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>furiè UniFG - SRAW Designer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600&display=swap');
+
+  :root {
+    --bg:      #07090c;
+    --panel:   #0d1016;
+    --border:  #1a2030;
+    --accent:  #00e5ff;
+    --accent2: #ffb300;
+    --red:     #ff4060;
+    --green:   #00ff88;
+    --purple:  #c080ff;
+    --text:    #b8c4d8;
+    --muted:   #4a5568;
+    --mono:    'Share Tech Mono', monospace;
+    --sans:    'Barlow', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+  #header h1 { font-family: var(--mono); font-size: 0.9rem; color: var(--accent); letter-spacing: 0.1em; }
+  #header a { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); text-decoration: none; }
+  #header a:hover { color: var(--accent); }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  #sidebar {
+    width: 320px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+
+  .sb-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-section h3 {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: var(--accent2);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  select, input[type="number"], input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 6px 8px;
+    outline: none;
+    appearance: none;
+    transition: border-color 0.15s, opacity 0.15s;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  select:disabled, input[readonly] { opacity: 0.8; cursor: default; }
+
+  .mini-note {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+
+  .btn-full {
+    width: 100%;
+    margin-top: 12px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    padding: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn-full:hover { background: var(--accent); color: var(--bg); }
+  .btn-export { border-color: var(--green); color: var(--green); }
+  .btn-export:hover { background: var(--green); color: var(--bg); }
+
+  #canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+  #statusbar {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 4px 20px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    display: flex;
+    gap: 24px;
+    flex-shrink: 0;
+  }
+  #statusbar span { color: var(--text); }
+
+  #save-msg {
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    min-height: 1.2em;
+  }
+  #save-msg.ok { color: var(--green); }
+  #save-msg.err { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>furiè Unifg - SRAW_DESIGNER</h1>
+  <a href="../index.php">← Launcher</a>
+  <span style="flex:1"></span>
+  <span id="header-subtitle" style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">Disegnatore di segnali nel dominio del tempo e filtri nel dominio della frequenza</span>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+
+    <div class="sb-section">
+      <h3>Dominio</h3>
+      <label>Dominio di disegno</label>
+      <select id="domain" onchange="updateDomainUi()">
+        <option value="time" selected>tempo</option>
+        <option value="freq">frequenza</option>
+      </select>
+      <div class="mini-note">Lo stesso designer può generare file SRAW sia come segnali temporali che come spettri o filtri nel dominio della frequenza.</div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Forma</h3>
+      <label>Tipo segnale</label>
+      <select id="shape-type" onchange="onShapeChange()">
+        <option value="rect">rect — porta rettangolare</option>
+        <option value="tri">tri — porta triangolare</option>
+        <option value="sinc">sinc — sinc cardinale</option>
+        <option value="sin">sin — sinusoide</option>
+        <option value="cos">cos — cosinusoide</option>
+        <option value="square">onda quadra</option>
+        <option value="gauss">gaussiana</option>
+        <option value="exp">esponenziale</option>
+        <option value="ramp">rampa lineare</option>
+        <option value="dirac">impulso (approssimato)</option>
+        <option value="step">gradino unitario</option>
+      </select>
+    </div>
+
+    <div class="sb-section">
+      <h3>Parametri</h3>
+      <label id="amp-max-label">A_max (V)</label>
+      <input type="number" id="amp-max" value="5" step="0.5">
+      <div class="mini-note" id="amp-note">Scala del segnale generato nel dominio del tempo.</div>
+
+      <label id="center-label">Centro x0 (s)</label>
+      <input type="number" id="center-x0" value="0" step="0.1">
+      <div class="mini-note" id="center-note">Shift centrale della forma lungo l'asse X.</div>
+
+      <div id="params-fields"></div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Finestra attiva</h3>
+      <label id="window-label">Durata finestra attiva (s)</label>
+      <input type="number" id="window-span" value="2" step="0.1">
+      <label>Campioni attivi calcolati</label>
+      <input type="number" id="n-samples" value="0" readonly>
+      <label>axis_mode</label>
+      <select id="axis-mode" disabled>
+        <option value="symmetric" selected>symmetric</option>
+        <option value="positive">positive</option>
+      </select>
+      <div class="mini-note" id="window-note">La finestra attiva viene convertita automaticamente in campioni usando la risoluzione del dominio selezionato.</div>
+    </div>
+
+    <div class="sb-section">
+      <button class="btn-full" onclick="generate()">▸ Somma al canvas</button>
+      <button class="btn-full" onclick="clearCanvas()" style="margin-top:6px;border-color:var(--red);color:var(--red)">✕ Pulisci canvas</button>
+    </div>
+
+    <div class="sb-section">
+      <h3>Operazioni sul canvas</h3>
+      <label>Operazione</label>
+      <select id="op-type" onchange="updateOpUi()">
+        <option value="gain">gain — scala ampiezza</option>
+        <option value="shift">shift — traslazione asse X</option>
+        <option value="mirror_y">mirror — ribalta asse X</option>
+        <option value="dilate_x">dilata — dilata asse X</option>
+        <option value="mul">moltiplica per sraw da /data</option>
+        <option value="sum_file">somma sraw da /data</option>
+      </select>
+      <div id="op-params-fields"></div>
+      <button class="btn-full" onclick="applyOp()" style="border-color:var(--purple);color:var(--purple)">▸ Applica</button>
+      <div id="op-msg" style="margin-top:8px;font-family:var(--mono);font-size:0.72rem;min-height:1em"></div>
+    </div>
+
+    <div class="sb-section">
+      <h3>File</h3>
+      <button class="btn-full" onclick="openFileBrowserLoad()" style="border-color:var(--accent2);color:var(--accent2)">⬆ Carica da /data (somma)</button>
+      <button class="btn-full btn-export" onclick="openFileBrowserSave()" style="margin-top:6px">⬇ Salva in /data</button>
+      <div id="save-msg"></div>
+    </div>
+
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="cv"></canvas>
+  </div>
+</div>
+
+<div id="statusbar">
+  <div><span id="st-x-label">t</span>: <span id="st-x">—</span></div>
+  <div><span id="st-y-label">V</span>: <span id="st-y">—</span></div>
+  <div>canvas: <span id="st-n">—</span></div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+    <span style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Zoom rotella</span>
+    <select id="zoom-mode" style="font-family:var(--mono);font-size:0.75rem;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:3px 6px;outline:none">
+      <option value="xy">X &amp; Y</option>
+      <option value="x">solo X</option>
+      <option value="y">solo Y</option>
+    </select>
+    <button onclick="resetViewport()" style="font-family:var(--mono);font-size:0.75rem;background:transparent;border:1px solid var(--border);color:var(--text);padding:3px 10px;cursor:pointer">Reset zoom</button>
+  </div>
+</div>
+
+<script src="../shared/sraw_shared.js"></script>
+<script>
+const fileBrowser = new SrawFileBrowser({ phpRoot: '../' });
+
+let C = null;
+let vp  = { xMin: -1, xMax: 1, yMin: -1, yMax: 1 };
+let pan = { active: false, startX: 0, startY: 0, vpStart: null };
+
+let currentPreviewSamples = null;
+let currentDesign         = null;
+// Canvas accumulato denso: null = vuoto
+// Quando popolato: { axisMode:'symmetric', re: Float64Array, im: Float64Array }
+let canvasDense = null;
+
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// ── Shape params ─────────────────────────────────────────────────
+const SHAPE_PARAMS = {
+  rect:   [ { id: 'T', step: 0.1, valTime: 0.5,  valFreq: 200,   label: d => d === 'time' ? 'Durata T (s)'    : 'Larghezza B (Hz)' } ],
+  tri:    [ { id: 'T', step: 0.1, valTime: 0.5,  valFreq: 200,   label: d => d === 'time' ? 'Durata T (s)'    : 'Larghezza B (Hz)' } ],
+  sinc:   [ { id: 'T', step: 0.1, valTime: 0.5,  valFreq: 200,   label: d => d === 'time' ? 'Scala T (s)'     : 'Scala B (Hz)'     } ],
+  sin:    [ { id: 'f',    step: 0.5,  valTime: 2,    valFreq: 0.01, label: d => d === 'time' ? 'Frequenza f (Hz)' : 'Densità ν (cicli/Hz)' },
+            { id: 'phi',  step: 0.1,  valTime: 0,    valFreq: 0,    label: () => 'Fase φ (rad)' } ],
+  cos:    [ { id: 'f',    step: 0.5,  valTime: 2,    valFreq: 0.01, label: d => d === 'time' ? 'Frequenza f (Hz)' : 'Densità ν (cicli/Hz)' },
+            { id: 'phi',  step: 0.1,  valTime: 0,    valFreq: 0,    label: () => 'Fase φ (rad)' } ],
+  square: [ { id: 'f',    step: 0.5,  valTime: 2,    valFreq: 0.01, label: d => d === 'time' ? 'Frequenza f (Hz)' : 'Densità ν (cicli/Hz)' },
+            { id: 'duty', step: 0.05, valTime: 0.5,  valFreq: 0.5,  label: () => 'Duty cycle (0–1)' } ],
+  gauss:  [ { id: 'sigma', step: 0.05, valTime: 0.2,  valFreq: 80,   label: d => d === 'time' ? 'σ (s)' : 'σ (Hz)' } ],
+  exp:    [ { id: 'tau',   step: 0.05, valTime: 0.3,  valFreq: 120,  label: d => d === 'time' ? 'τ (s)' : 'τ (Hz)' } ],
+  ramp:   [ { id: 'T', step: 0.1, valTime: 12.5, valFreq: 10000, label: d => d === 'time' ? 'Durata T (s)' : 'Larghezza B (Hz)' } ],
+  dirac:  [ { id: 'width', step: 0.01, valTime: 0.05, valFreq: 40,   label: d => d === 'time' ? 'Larghezza impulso (s)' : 'Larghezza impulso (Hz)' } ],
+  step:   [],
+};
+
+// Centri di default per forma (dominio tempo). Le altre forme usano 0.
+const SHAPE_DEFAULT_CENTER = { ramp: 'half_max' }; // 'half_max' = C.TIME_MAX/2 at runtime
+
+// Span di default per forma: null = usa il default globale (2s/1000Hz).
+// 'full' = usa C.TIME_MAX / C.FREQ_MAX (range completo).
+// Le forme il cui segnale si estende oltre la finestra di default
+// vengono mostrate subito con il range fisico corretto.
+const SHAPE_DEFAULT_SPAN = {
+  exp:    'full',
+  sin:    'full',
+  cos:    'full',
+  square: 'full',
+  gauss:  'full',
+  ramp:   'full',
+};
+
+// ── Op params ─────────────────────────────────────────────────────
+const OP_PARAMS = {
+  gain:     [ { id: 'gain_val',   label: 'Fattore (es. 0.5, -1, 2)', type: 'number', step: 0.1, def: 1 } ],
+  shift:    [ { id: 'shift_val',  label: 'Valore shift', type: 'number', step: 0.1, def: 0 },
+              { id: 'shift_unit', label: 'Unità', type: 'select',
+                opts: [['samples','campioni'],['time','secondi (s)'],['freq','Hz']] } ],
+  mirror_y: [],
+  dilate_x: [ { id: 'dilate_val', label: 'Fattore dilatazione', type: 'number', step: 0.1, def: 2 } ],
+  mul:      [ { id: 'op_file', label: 'File B da /data', type: 'filepick' } ],
+  sum_file: [ { id: 'op_file', label: 'File B da /data', type: 'filepick' } ],
+};
+
+// ── Domain helpers ────────────────────────────────────────────────
+function getDomain()              { return document.getElementById('domain').value; }
+function getAxisUnit()            { return getDomain() === 'time' ? 's' : 'Hz'; }
+function getAmpUnit()             { return getDomain() === 'time' ? 'V' : 'Vs'; }
+function getXRes()                { return getDomain() === 'time' ? C.TIME_RES     : C.FREQ_RES;      }
+function getAmpRes()              { return getDomain() === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES;  }
+function getHalfRangeXPhys()      { return getDomain() === 'time' ? C.TIME_MAX     : C.FREQ_MAX;      }
+function getAmpDisplayHalfRange() { return 2 * C.AMP_INT_MAX * getAmpRes(); }
+function getHardXRange()          { return { min: -(C.MAX_SAMPLES / 2), max: (C.MAX_SAMPLES / 2) - 1 }; }
+
+function fmtFixedTrim(v, digits = 6) {
+  return Number(v).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+// ── Shape change handler ──────────────────────────────────────────
+function onShapeChange() {
+  if (!C) return;
+  const shape    = document.getElementById('shape-type').value;
+  const centerEl = document.getElementById('center-x0');
+  const spanEl   = document.getElementById('window-span');
+
+  // Se l'utente non ha mai toccato il centro, imposta il default per la forma
+  if (!centerEl.dataset.userTouched) {
+    const rawCenter = SHAPE_DEFAULT_CENTER[shape];
+    const defCenter = getDomain() === 'time'
+      ? (rawCenter === 'half_max' ? C.TIME_MAX / 2 : (rawCenter ?? 0))
+      : (rawCenter === 'half_max' ? C.FREQ_MAX / 2 : (rawCenter ? rawCenter * C.FREQ_RES / C.TIME_RES : 0));
+    centerEl.value = fmtFixedTrim(defCenter, 6);
+  }
+
+  // Se l'utente non ha mai toccato la finestra, imposta lo span di default per la forma
+  if (!spanEl.dataset.userTouched) {
+    const spanSpec = SHAPE_DEFAULT_SPAN[shape];
+    if (spanSpec === 'full') {
+      const fullSpan = getDomain() === 'time' ? C.TIME_MAX * 2 : C.FREQ_MAX * 2;
+      spanEl.value = fmtFixedTrim(fullSpan, 6);
+    }
+  }
+
+  updateParams();
+  clearSaveMsg();
+}
+
+// ── UI helpers ────────────────────────────────────────────────────
+function updateParams() {
+  const domain = getDomain();
+  const shape  = document.getElementById('shape-type').value;
+  const wrap   = document.getElementById('params-fields');
+  wrap.innerHTML = '';
+  for (const p of (SHAPE_PARAMS[shape] || [])) {
+    const defVal = domain === 'time' ? p.valTime : p.valFreq;
+    wrap.insertAdjacentHTML('beforeend',
+      `<label>${p.label(domain)}</label>
+       <input type="number" id="param-${p.id}" value="${defVal}" step="${p.step}">`);
+  }
+}
+
+function getParam(id, fallback) {
+  const el = document.getElementById('param-' + id);
+  if (!el) return fallback;
+  const v = parseFloat(el.value);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function updateDomainUi() {
+  if (!C) return;
+  const domain   = getDomain();
+  const axisUnit = getAxisUnit();
+  const ampUnit  = getAmpUnit();
+
+  document.getElementById('header-subtitle').textContent = domain === 'time'
+    ? 'Disegnatore di segnali nel dominio del tempo'
+    : 'Disegnatore di segnali nel dominio della frequenza';
+
+  document.getElementById('amp-max-label').textContent = `A_max (${ampUnit})`;
+  document.getElementById('amp-note').textContent = domain === 'time'
+    ? 'Scala del segnale generato nel dominio del tempo.'
+    : 'Scala dello spettro o filtro generato nel dominio della frequenza.';
+
+  document.getElementById('center-label').textContent = `Centro x0 (${axisUnit})`;
+  document.getElementById('center-note').textContent  = domain === 'time'
+    ? "Shift centrale della forma lungo l'asse temporale."
+    : "Shift centrale della forma lungo l'asse di frequenza.";
+
+  document.getElementById('window-label').textContent = domain === 'time'
+    ? 'Durata finestra attiva (s)' : 'Larghezza finestra attiva (Hz)';
+
+  document.getElementById('window-note').textContent = domain === 'time'
+    ? 'Finestra convertita in campioni con TIME_RESOLUTION_S.'
+    : 'Finestra convertita in campioni con FREQ_RESOLUTION_HZ.';
+
+  document.getElementById('st-x-label').textContent = domain === 'time' ? 't' : 'f';
+  document.getElementById('st-y-label').textContent = ampUnit;
+
+  document.getElementById('center-x0').step = domain === 'time' ? '0.1' : '1';
+
+  const spanEl = document.getElementById('window-span');
+  spanEl.step = domain === 'time' ? '0.1' : '1';
+  if (!spanEl.dataset.userTouched) spanEl.value = domain === 'time' ? '2' : '1000';
+
+  updateParams();
+  syncWindowUi();
+  resetViewport();
+  clearSaveMsg();
+  draw();
+}
+
+function updateOpUi() {
+  const op   = document.getElementById('op-type').value;
+  const wrap = document.getElementById('op-params-fields');
+  wrap.innerHTML = '';
+  for (const p of (OP_PARAMS[op] || [])) {
+    const lbl = `<label style="margin-top:10px">${p.label}</label>`;
+    if (p.type === 'number') {
+      wrap.insertAdjacentHTML('beforeend',
+        `${lbl}<input type="number" id="opf-${p.id}" value="${p.def}" step="${p.step}">`);
+    } else if (p.type === 'select') {
+      const opts = p.opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+      wrap.insertAdjacentHTML('beforeend', `${lbl}<select id="opf-${p.id}">${opts}</select>`);
+    } else if (p.type === 'filepick') {
+      wrap.insertAdjacentHTML('beforeend',
+        `${lbl}<div style="display:flex;gap:6px;margin-top:4px">
+          <input type="text" id="opf-${p.id}" placeholder="nessun file scelto" readonly
+                 style="flex:1;opacity:0.7">
+          <button onclick="pickOpFile()"
+                  style="background:transparent;border:1px solid var(--border);color:var(--text);
+                         font-family:var(--mono);font-size:0.75rem;padding:4px 8px;cursor:pointer">…</button>
+        </div>`);
+    }
+  }
+}
+
+function pickOpFile() {
+  fileBrowser.open({
+    mode: 'load', filter: 'sraw',
+    onPick: relPath => {
+      const el = document.getElementById('opf-op_file');
+      if (el) el.value = relPath;
+    },
+  });
+}
+
+function getOpParam(id) {
+  const el = document.getElementById('opf-' + id);
+  return el ? el.value : null;
+}
+
+// ── Window helpers ────────────────────────────────────────────────
+function clipSpanPhysical(rawSpan) {
+  const xRes = getXRes();
+  const v = Number.isFinite(rawSpan) ? rawSpan : xRes;
+  return Math.min(C.MAX_SAMPLES * xRes, Math.max(xRes, v));
+}
+
+function clipCenterPhysical(rawCenter) {
+  const half = getHalfRangeXPhys();
+  const v = Number.isFinite(rawCenter) ? rawCenter : 0;
+  return Math.min(half, Math.max(-half, v));
+}
+
+function spanToRequestedSamples(spanPhysical) {
+  return Math.min(C.MAX_SAMPLES, Math.max(1, Math.round(clipSpanPhysical(spanPhysical) / getXRes())));
+}
+
+function syncWindowUi() {
+  if (!C) return;
+  const spanEl    = document.getElementById('window-span');
+  const centerEl  = document.getElementById('center-x0');
+  const samplesEl = document.getElementById('n-samples');
+
+  const clippedSpan = clipSpanPhysical(parseFloat(spanEl.value));
+  const reqSamples  = spanToRequestedSamples(clippedSpan);
+  spanEl.value    = fmtFixedTrim(reqSamples * getXRes(), 6);
+  centerEl.value  = fmtFixedTrim(clipCenterPhysical(parseFloat(centerEl.value)), 6);
+  samplesEl.value = String(reqSamples);
+}
+
+function xPhys(idx) { return idx * getXRes(); }
+function yPhys(v)   { return v   * getAmpRes(); }
+
+function clearSaveMsg() {
+  const msg = document.getElementById('save-msg');
+  msg.textContent = ''; msg.className = '';
+}
+
+function resetViewport() {
+  if (!C) return;
+  const xAbs = getHalfRangeXPhys()      * 1.10;
+  const yAbs = getAmpDisplayHalfRange() * 1.10;
+  vp = {
+    xMin: -xAbs / getXRes(),   xMax:  xAbs / getXRes(),
+    yMin: -yAbs / getAmpRes(), yMax:  yAbs / getAmpRes(),
+  };
+  draw();
+}
+
+// ── sinc helper ───────────────────────────────────────────────────
+function sinc_norm(x) {
+  return Math.abs(x) < 1e-12 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+}
+
+// ── computeNormalized ─────────────────────────────────────────────
+function computeNormalized(xAxis, shape) {
+  switch (shape) {
+    case 'rect': {
+      const T = getParam('T', getDomain() === 'time' ? 0.5 : 200);
+      return Math.abs(xAxis) <= T / 2 ? 1 : 0;
+    }
+    case 'tri': {
+      const T = Math.max(getParam('T', getDomain() === 'time' ? 0.5 : 200), 1e-12);
+      const x = Math.abs(xAxis) / (T / 2);
+      return x <= 1 ? 1 - x : 0;
+    }
+    case 'sinc': {
+      const T = Math.max(getParam('T', getDomain() === 'time' ? 0.5 : 200), 1e-12);
+      return sinc_norm(xAxis / T);
+    }
+    case 'sin':
+      return Math.sin(2 * Math.PI * getParam('f', getDomain() === 'time' ? 2 : 0.01) * xAxis + getParam('phi', 0));
+    case 'cos':
+      return Math.cos(2 * Math.PI * getParam('f', getDomain() === 'time' ? 2 : 0.01) * xAxis + getParam('phi', 0));
+    case 'square': {
+      const freq  = getParam('f', getDomain() === 'time' ? 2 : 0.01);
+      const phase = ((xAxis * freq) % 1 + 1) % 1;
+      return phase < getParam('duty', 0.5) ? 1 : -1;
+    }
+    case 'gauss': {
+      const sigma = Math.max(getParam('sigma', getDomain() === 'time' ? 0.2 : 80), 1e-12);
+      return Math.exp(-(xAxis * xAxis) / (2 * sigma * sigma));
+    }
+    case 'exp': {
+      const tau = Math.max(getParam('tau', getDomain() === 'time' ? 0.3 : 120), 1e-12);
+      return xAxis >= 0 ? Math.exp(-xAxis / tau) : 0;
+    }
+    case 'ramp': {
+      // rampa da 0 a 1 nell'intervallo [-T/2, +T/2], zero fuori
+      const T    = Math.max(getParam('T', getDomain() === 'time' ? 12.5 : 10000), 1e-12);
+      const half = T / 2;
+      if (xAxis < -half || xAxis > half) return 0;
+      return (xAxis + half) / T;
+    }
+    case 'dirac': {
+      const width = Math.max(getParam('width', getDomain() === 'time' ? 0.05 : 40), getXRes());
+      return Math.abs(xAxis) <= width / 2 ? 1 / width : 0;
+    }
+    case 'step':
+      return xAxis >= 0 ? 1 : 0;
+    default:
+      return 0;
+  }
+}
+
+// ── Dense canvas helpers ──────────────────────────────────────────
+function makeDenseGrid() {
+  return { xMin: -(C.MAX_SAMPLES / 2), len: C.MAX_SAMPLES };
+}
+
+function denseFromKnots(knots) {
+  const { xMin, len } = makeDenseGrid();
+  const re = new Float64Array(len);
+  const im = new Float64Array(len);
+  if (!knots || knots.length === 0) return { axisMode: 'symmetric', re, im };
+  for (let i = 0; i < len; i++) {
+    const s = interpolate(knots, xMin + i);
+    re[i] = s.re;
+    im[i] = s.im;
+  }
+  return { axisMode: 'symmetric', re, im };
+}
+
+/**
+ * Produce knot points compatti dal canvas denso.
+ * Include solo campioni non-zero e un campione zero di "guardia"
+ * immediatamente prima e dopo ogni zona attiva.
+ * Non aggiunge sentinel agli estremi assoluti: così il renderer
+ * non traccia la linea fuori dalla zona attiva.
+ */
+function denseToKnots(dense) {
+  const { xMin, len } = makeDenseGrid();
+  const { re, im }    = dense;
+  const out = [];
+
+  for (let i = 0; i < len; i++) {
+    const r = Math.round(re[i]);
+    const j = Math.round(im[i]);
+
+    const isNonZero   = r !== 0 || j !== 0;
+    const prevNonZero = i > 0       && (Math.round(re[i - 1]) !== 0 || Math.round(im[i - 1]) !== 0);
+    const nextNonZero = i < len - 1 && (Math.round(re[i + 1]) !== 0 || Math.round(im[i + 1]) !== 0);
+
+    if (isNonZero || prevNonZero || nextNonZero) {
+      out.push({ x: xMin + i, re: r, im: j });
+    }
+  }
+  return out;
+}
+
+function clampDense(dense) {
+  const m = C.AMP_INT_MAX;
+  for (let i = 0; i < dense.re.length; i++) {
+    dense.re[i] = Math.max(-m, Math.min(m, dense.re[i]));
+    dense.im[i] = Math.max(-m, Math.min(m, dense.im[i]));
+  }
+}
+
+function refreshFromDense() {
+  currentPreviewSamples = denseToKnots(canvasDense);
+  document.getElementById('st-n').textContent = `${currentPreviewSamples.length} knots`;
+  clearSaveMsg();
+  draw();
+}
+
+// ── generate(): somma al canvas ───────────────────────────────────
+function generate() {
+  if (!C) return;
+  syncWindowUi();
+
+  const shape  = document.getElementById('shape-type').value;
+  const ampMax = Math.max(0, parseFloat(document.getElementById('amp-max').value) || 0);
+  const x0Phys = clipCenterPhysical(parseFloat(document.getElementById('center-x0').value));
+  const reqSpan    = clipSpanPhysical(parseFloat(document.getElementById('window-span').value));
+  const reqSamples = spanToRequestedSamples(reqSpan);
+  const xRes   = getXRes();
+  const ampRes = getAmpRes();
+  const { min: xHardMin, max: xHardMax } = getHardXRange();
+
+  const centerIndex = Math.round(x0Phys / xRes);
+  let activeStartX  = centerIndex - Math.floor(reqSamples / 2);
+  let activeEndX    = activeStartX + reqSamples - 1;
+  if (activeStartX < xHardMin) activeStartX = xHardMin;
+  if (activeEndX   > xHardMax) activeEndX   = xHardMax;
+  const actualCount = Math.max(1, activeEndX - activeStartX + 1);
+
+  document.getElementById('center-x0').value   = fmtFixedTrim(x0Phys, 6);
+  document.getElementById('window-span').value = fmtFixedTrim(actualCount * xRes, 6);
+  document.getElementById('n-samples').value   = String(actualCount);
+
+  // Calcola valori normalizzati
+  const rawVals = new Float64Array(actualCount);
+  let maxAbs = 0;
+  for (let i = 0; i < actualCount; i++) {
+    const v = computeNormalized((activeStartX + i) * xRes - x0Phys, shape);
+    rawVals[i] = v;
+    if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v);
+  }
+  const intScale = maxAbs > 0 ? (ampMax / ampRes) / maxAbs : 0;
+
+  // Inizializza o riusa canvasDense
+  if (!canvasDense) {
+    canvasDense = { axisMode: 'symmetric', re: new Float64Array(C.MAX_SAMPLES), im: new Float64Array(C.MAX_SAMPLES) };
+  }
+  const { xMin } = makeDenseGrid();
+
+  // Somma sul canvas denso
+  for (let i = 0; i < actualCount; i++) {
+    const idx = (activeStartX + i) - xMin;
+    canvasDense.re[idx] = clampAmp(Math.round(canvasDense.re[idx] + rawVals[i] * intScale));
+  }
+
+  currentDesign = { domain: getDomain(), shape, ampMax, x0Phys, activeStartX, activeEndX };
+  refreshFromDense();
+}
+
+// ── clearCanvas ───────────────────────────────────────────────────
+function clearCanvas() {
+  canvasDense = null;
+  currentPreviewSamples = null;
+  currentDesign = null;
+  document.getElementById('st-n').textContent = '—';
+  clearSaveMsg();
+  draw();
+}
+
+// ── buildFullSrawText ─────────────────────────────────────────────
+function buildFullSrawText() {
+  if (!currentPreviewSamples || currentPreviewSamples.length === 0) return '';
+  return serializeSraw(currentPreviewSamples, 'symmetric', 'Generated by SRAW Designer');
+}
+
+// ── applyOp ───────────────────────────────────────────────────────
+async function applyOp() {
+  const opMsg = document.getElementById('op-msg');
+  opMsg.style.color = 'var(--muted)'; opMsg.textContent = '…';
+
+  if (!canvasDense) {
+    opMsg.style.color = 'var(--red)'; opMsg.textContent = 'Canvas vuoto.'; return;
+  }
+
+  const op      = document.getElementById('op-type').value;
+  const { len } = makeDenseGrid();
+  const re      = canvasDense.re;
+  const im      = canvasDense.im;
+
+  try {
+    if (op === 'gain') {
+      const g = parseFloat(getOpParam('gain_val'));
+      if (!isFinite(g)) throw new Error('Fattore non valido');
+      for (let i = 0; i < len; i++) { re[i] *= g; im[i] *= g; }
+
+    } else if (op === 'mirror_y') {
+      const newRe = new Float64Array(len);
+      const newIm = new Float64Array(len);
+      for (let i = 0; i < len; i++) { newRe[i] = re[len - 1 - i]; newIm[i] = im[len - 1 - i]; }
+      canvasDense.re = newRe; canvasDense.im = newIm;
+
+    } else if (op === 'shift') {
+      const val  = parseFloat(getOpParam('shift_val'));
+      const unit = getOpParam('shift_unit');
+      if (!isFinite(val)) throw new Error('Valore non valido');
+      let shiftSamples;
+      if      (unit === 'time') shiftSamples = Math.round(val / C.TIME_RES);
+      else if (unit === 'freq') shiftSamples = Math.round(val / C.FREQ_RES);
+      else                      shiftSamples = Math.round(val);
+
+      const newRe = new Float64Array(len);
+      const newIm = new Float64Array(len);
+      for (let i = 0; i < len; i++) {
+        const src = i - shiftSamples;
+        if (src >= 0 && src < len) { newRe[i] = re[src]; newIm[i] = im[src]; }
+      }
+      canvasDense.re = newRe; canvasDense.im = newIm;
+
+    } else if (op === 'dilate_x') {
+      const factor = parseFloat(getOpParam('dilate_val'));
+      if (!isFinite(factor) || factor === 0) throw new Error('Fattore non valido');
+      const newRe = new Float64Array(len);
+      const newIm = new Float64Array(len);
+      for (let i = 0; i < len; i++) {
+        const srcF = i / factor;
+        const s0   = Math.floor(srcF);
+        const s1   = Math.ceil(srcF);
+        if (s0 >= 0 && s1 < len) {
+          const t = srcF - s0;
+          newRe[i] = re[s0] + (re[s1] - re[s0]) * t;
+          newIm[i] = im[s0] + (im[s1] - im[s0]) * t;
+        }
+      }
+      canvasDense.re = newRe; canvasDense.im = newIm;
+
+    } else if (op === 'mul' || op === 'sum_file') {
+      const relPath = getOpParam('op_file');
+      if (!relPath) throw new Error('Scegli prima un file B');
+      opMsg.textContent = 'Caricamento ' + relPath + '…';
+      const url = '../data/' + relPath.split('/').map(encodeURIComponent).join('/');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const parsed = parseSraw(await res.text());
+      const bDense = denseFromKnots(parsed.samples);
+
+      if (op === 'sum_file') {
+        for (let i = 0; i < len; i++) { re[i] += bDense.re[i]; im[i] += bDense.im[i]; }
+      } else {
+        const m = C.AMP_INT_MAX;
+        for (let i = 0; i < len; i++) {
+          const ar = re[i], ai = im[i], br = bDense.re[i], bi = bDense.im[i];
+          re[i] = (ar * br - ai * bi) / m;
+          im[i] = (ar * bi + ai * br) / m;
+        }
+      }
+    }
+
+    clampDense(canvasDense);
+    refreshFromDense();
+    opMsg.style.color = 'var(--green)'; opMsg.textContent = '✓ ' + op + ' applicato';
+
+  } catch (e) {
+    opMsg.style.color = 'var(--red)'; opMsg.textContent = '⚠ ' + e.message;
+  }
+}
+
+// ── File browser ──────────────────────────────────────────────────
+function openFileBrowserLoad() {
+  fileBrowser.open({
+    mode: 'load', filter: 'sraw',
+    onPick: (relPath, text) => {
+      try {
+        const parsed   = parseSraw(text);
+        const incoming = denseFromKnots(parsed.samples);
+        if (!canvasDense) {
+          canvasDense = incoming;
+        } else {
+          const { len } = makeDenseGrid();
+          for (let i = 0; i < len; i++) {
+            canvasDense.re[i] += incoming.re[i];
+            canvasDense.im[i] += incoming.im[i];
+          }
+          clampDense(canvasDense);
+        }
+        currentDesign = null;
+        fileBrowser._lastLoadedName = relPath.includes('/')
+          ? relPath.slice(relPath.lastIndexOf('/') + 1) : relPath;
+        refreshFromDense();
+      } catch (e) {
+        const msg = document.getElementById('save-msg');
+        msg.textContent = '⚠ ' + e.message; msg.className = 'err';
+      }
+    },
+  });
+}
+
+function openFileBrowserSave() {
+  if (!canvasDense) {
+    const msg = document.getElementById('save-msg');
+    msg.textContent = 'Canvas vuoto.'; msg.className = 'err'; return;
+  }
+  fileBrowser.open({
+    mode: 'save', filter: 'sraw',
+    defaultName: fileBrowser._lastLoadedName
+      || (currentDesign ? currentDesign.shape + '.sraw' : 'canvas.sraw'),
+    content: () => buildFullSrawText(),
+    onSave: relPath => {
+      const msg = document.getElementById('save-msg');
+      msg.textContent = '✓ Salvato in data/' + relPath; msg.className = 'ok';
+    },
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function resize() {
+  cv.width  = Math.max(1, Math.floor(cv.offsetWidth  * devicePixelRatio));
+  cv.height = Math.max(1, Math.floor(cv.offsetHeight * devicePixelRatio));
+  draw();
+}
+
+function draw() {
+  if (!C) return;
+  const W = cv.width, H = cv.height;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#07090c';
+  ctx.fillRect(0, 0, W, H);
+
+  drawOutOfRangeZones(W, H, 'symmetric', -C.AMP_INT_MAX, C.AMP_INT_MAX);
+  drawGridAndAxes(W, H,
+    x => fmtNum(xPhys(x)) + getAxisUnit(),
+    y => fmtNum(yPhys(y)) + getAmpUnit());
+
+  if (!currentPreviewSamples || currentPreviewSamples.length === 0) {
+    ctx.fillStyle = '#1a2030';
+    ctx.font = `${14 * devicePixelRatio}px 'Share Tech Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Canvas vuoto — genera una forma o carica un file', W / 2, H / 2);
+    return;
+  }
+
+  const valFn  = s => s.re;
+  const getYFn = (samples, xq) => interpolate(samples, xq).re;
+  drawSignal(currentPreviewSamples, W, H, valFn, getYFn, '#00ff88', false);
+  drawKnots(currentPreviewSamples,  W, H, valFn, '#00ff88');
+}
+
+// ── Events ────────────────────────────────────────────────────────
+bindPanZoom({
+  getZoomMode: () => document.getElementById('zoom-mode').value,
+  onUpdate: draw,
+  onMouseMove: (wx, wy) => {
+    document.getElementById('st-x').textContent = fmtNum(xPhys(wx)) + getAxisUnit();
+    document.getElementById('st-y').textContent = fmtNum(yPhys(wy)) + getAmpUnit();
+  },
+});
+
+new ResizeObserver(resize).observe(cv);
+
+document.getElementById('window-span').addEventListener('input', e => {
+  e.target.dataset.userTouched = '1';
+  syncWindowUi(); clearSaveMsg();
+});
+document.getElementById('center-x0').addEventListener('input', e => {
+  e.target.dataset.userTouched = '1';
+  syncWindowUi(); clearSaveMsg();
+});
+document.getElementById('amp-max').addEventListener('input', clearSaveMsg);
+
+// ── Boot ──────────────────────────────────────────────────────────
+loadConf('../../conf/sraw.conf')
+  .then(conf => {
+    C = conf;
+    updateParams();
+    updateDomainUi();
+    updateOpUi();
+    resize();
+  })
+  .catch(err => alert('Errore caricamento sraw.conf: ' + err.message));
+</script>
+</body>
+</html>
