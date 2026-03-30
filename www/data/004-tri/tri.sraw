@@ -1,6 +1,10 @@
 SRAW-1
 # Esempio: tri(t) — porta triangolare centrata, durata 1s, altezza 1V
 axis_mode,symmetric
+time_res,0.0000125
+freq_res,0.01
+amp_time_res,0.00001
+amp_freq_res,0.00001
 data
 -1000000,0,0
 -40000,0,0

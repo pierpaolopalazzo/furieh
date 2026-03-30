@@ -7,6 +7,7 @@ All Python tools import this module for consistent SRAW read/write operations.
 
 import os
 import sys
+import shutil
 from pathlib import Path
 
 # ─────────────────────────────────────────────
@@ -36,50 +37,104 @@ def get_constants(conf=None):
     """
     Return a dict of typed constants.
 
-    Primitive values are read from conf; all derived quantities are
-    computed here so the conf stays minimal and non-redundant.
+    MAX_SAMPLES is always read from conf (sraw.conf).
+    Resolution values (TIME_RES, FREQ_RES, AMP_TIME_RES, AMP_FREQ_RES) use
+    SRAW-1.1 defaults (1 nV / 1 nVs) but can be overridden by the caller
+    (e.g. when reading a legacy SRAW-1 file without embedded constants).
 
-    Primitives (from conf):
-        FORMAT_VERSION, MAX_SAMPLES,
-        TIME_RESOLUTION_S, FREQ_RESOLUTION_HZ,
-        AMP_TIME_RESOLUTION_V, AMP_FREQ_RESOLUTION_VS
-
-    Derived (computed):
-        AMP_INT_MAX  = round(5.0 / AMP_TIME_RESOLUTION_V)   (+-5 V range / step)
-        AMP_INT_MIN  = -AMP_INT_MAX
-        TIME_MAX     = MAX_SAMPLES * TIME_RESOLUTION_S / 2   (positive half-span)
-        FREQ_MAX     = MAX_SAMPLES * FREQ_RESOLUTION_HZ / 2  (positive half-span)
+    AMP_INT_MAX is None for SRAW-1.1 (no clipping).  For legacy SRAW-1 files,
+    callers may pass overrides with the old resolution values; in that case
+    AMP_INT_MAX is computed as round(5.0 / AMP_TIME_RESOLUTION_V).
     """
     if conf is None:
         conf = load_conf()
 
-    # --- primitives ---
-    time_res     = float(conf["TIME_RESOLUTION_S"])
-    freq_res     = float(conf["FREQ_RESOLUTION_HZ"])
-    amp_time_res = float(conf["AMP_TIME_RESOLUTION_V"])
-    amp_freq_res = float(conf["AMP_FREQ_RESOLUTION_VS"])
-    max_samples  = int(conf["MAX_SAMPLES"])
-    format_ver   = conf["FORMAT_VERSION"]
+    max_samples = int(conf["MAX_SAMPLES"])
 
-    # --- derived ---
-    amp_int_max  = round(5.0 / amp_time_res)   # 500000
-    time_max     = max_samples * time_res / 2   # 12.5 s  (positive half-span)
-    freq_max     = max_samples * freq_res / 2   # 10000 Hz (positive half-span)
+    # SRAW-1.1 defaults
+    time_res     = float(conf.get("TIME_RESOLUTION_S",       "0.0000125"))
+    freq_res     = float(conf.get("FREQ_RESOLUTION_HZ",      "0.01"))
+    amp_time_res = float(conf.get("AMP_TIME_RESOLUTION_V",   "0.000000001"))
+    amp_freq_res = float(conf.get("AMP_FREQ_RESOLUTION_VS",  "0.000000001"))
+
+    # derived
+    time_max = max_samples * time_res / 2
+    freq_max = max_samples * freq_res / 2
+
+    # AMP_INT_MAX: None for 1.1 (unlimited); computed for legacy 1.0
+    amp_int_max = None
+    if amp_time_res >= 1e-6:  # legacy 10 µV resolution
+        amp_int_max = round(5.0 / amp_time_res)
 
     return {
-        # primitives
-        "FORMAT_VER":    format_ver,
         "MAX_SAMPLES":   max_samples,
         "TIME_RES":      time_res,
         "FREQ_RES":      freq_res,
         "AMP_TIME_RES":  amp_time_res,
         "AMP_FREQ_RES":  amp_freq_res,
-        # derived
         "AMP_INT_MAX":   amp_int_max,
-        "AMP_INT_MIN":  -amp_int_max,
+        "AMP_INT_MIN":  -amp_int_max if amp_int_max is not None else None,
         "TIME_MAX":      time_max,
         "FREQ_MAX":      freq_max,
     }
+
+
+def make_constants(time_res=0.0000125, freq_res=0.01,
+                   amp_time_res=0.000000001, amp_freq_res=0.000000001,
+                   max_samples=None, conf=None):
+    """
+    Build a constants dict from explicit resolution values.
+    Used when reading per-file constants from SRAW headers.
+    """
+    if max_samples is None:
+        if conf is None:
+            conf = load_conf()
+        max_samples = int(conf["MAX_SAMPLES"])
+
+    amp_int_max = None
+    if amp_time_res >= 1e-6:
+        amp_int_max = round(5.0 / amp_time_res)
+
+    return {
+        "MAX_SAMPLES":   max_samples,
+        "TIME_RES":      time_res,
+        "FREQ_RES":      freq_res,
+        "AMP_TIME_RES":  amp_time_res,
+        "AMP_FREQ_RES":  amp_freq_res,
+        "AMP_INT_MAX":   amp_int_max,
+        "AMP_INT_MIN":  -amp_int_max if amp_int_max is not None else None,
+        "TIME_MAX":      max_samples * time_res / 2,
+        "FREQ_MAX":      max_samples * freq_res / 2,
+    }
+
+
+# ─────────────────────────────────────────────
+# ffmpeg path resolution
+# ─────────────────────────────────────────────
+
+def resolve_ffmpeg_path(conf=None):
+    """
+    Resolve the ffmpeg executable path from conf or system PATH.
+    Accepts a conf dict (from load_conf()) or loads it automatically.
+    """
+    if conf is None:
+        conf = load_conf()
+
+    raw = conf.get("FFMPEG_PATH", "ffmpeg").strip().strip('"').strip("'")
+    if raw == "":
+        raw = "ffmpeg"
+
+    if os.path.isabs(raw) or os.sep in raw or (os.altsep and os.altsep in raw):
+        if not os.path.exists(raw):
+            raise FileNotFoundError(f"ffmpeg non trovato: {raw}")
+        return raw
+
+    found = shutil.which(raw)
+    if not found:
+        raise FileNotFoundError(
+            f"ffmpeg non trovato nel PATH. Valore attuale FFMPEG_PATH='{raw}'"
+        )
+    return found
 
 
 # ─────────────────────────────────────────────
@@ -151,8 +206,14 @@ class SrawData:
 
 def read_sraw(filepath):
     """
-    Parse a .sraw file.
-    Returns SrawData on success.
+    Parse a .sraw file (SRAW-1 or SRAW-1.1).
+
+    SRAW-1.1 files embed resolution constants as header directives
+    (time_res, freq_res, amp_time_res, amp_freq_res) before the data section.
+    If these are absent the file is treated as legacy SRAW-1 with 10 µV resolution
+    and ±5 V amplitude limits.
+
+    Returns (SrawData, constants_dict) on success.
     Raises ValueError with a descriptive message on format errors.
     """
     filepath = Path(filepath)
@@ -172,7 +233,9 @@ def read_sraw(filepath):
     axis_mode = None
     in_data = False
     samples = []
-    C = get_constants()
+
+    # Per-file resolution constants (SRAW-1.1)
+    file_consts = {}
 
     for lineno, line in enumerate(lines[1:], start=2):
         line = line.strip()
@@ -184,6 +247,20 @@ def read_sraw(filepath):
             if val not in ("positive", "symmetric"):
                 raise ValueError(f"Line {lineno}: invalid axis_mode '{val}'.")
             axis_mode = val
+            continue
+
+        # SRAW-1.1 per-file constants
+        if line.startswith("time_res,"):
+            file_consts["time_res"] = float(line.split(",", 1)[1].strip())
+            continue
+        if line.startswith("freq_res,"):
+            file_consts["freq_res"] = float(line.split(",", 1)[1].strip())
+            continue
+        if line.startswith("amp_time_res,"):
+            file_consts["amp_time_res"] = float(line.split(",", 1)[1].strip())
+            continue
+        if line.startswith("amp_freq_res,"):
+            file_consts["amp_freq_res"] = float(line.split(",", 1)[1].strip())
             continue
 
         if line == "data":
@@ -201,51 +278,60 @@ def read_sraw(filepath):
             except ValueError as e:
                 raise ValueError(f"Line {lineno}: cannot parse integers — {e}")
 
-            # Validate amplitude range
-            for val, name in ((re, "real"), (im, "imag")):
-                if not (C["AMP_INT_MIN"] <= val <= C["AMP_INT_MAX"]):
-                    raise ValueError(
-                        f"Line {lineno}: {name} value {val} out of range "
-                        f"[{C['AMP_INT_MIN']}, {C['AMP_INT_MAX']}]."
-                    )
             samples.append((x, re, im))
 
     if axis_mode is None:
         raise ValueError("Missing 'axis_mode' directive.")
     if len(samples) == 0:
         raise ValueError("No data samples found.")
+
+    # Build constants: per-file overrides > sraw.conf defaults
+    if file_consts:
+        # SRAW-1.1 file with embedded constants
+        C = make_constants(**file_consts)
+    else:
+        # Legacy SRAW-1: use old 10 µV resolution with ±5V limits
+        C = make_constants(
+            amp_time_res=0.00001,
+            amp_freq_res=0.00001,
+        )
+
     if len(samples) > C["MAX_SAMPLES"]:
         raise ValueError(f"Too many samples: {len(samples)} > {C['MAX_SAMPLES']}.")
 
     # ── Silent clipping ────────────────────────────────────────
-    # x indices outside the valid range for axis_mode are silently clamped.
-    # symmetric : [-500000, +500000]
-    # positive  : [0, +500000]
-    x_clip_min = -(C["MAX_SAMPLES"] // 2) if axis_mode == "symmetric" else 0
-    x_clip_max =  (C["MAX_SAMPLES"] // 2) if axis_mode == "symmetric" else C["MAX_SAMPLES"]
+    x_clip_min = -(C["MAX_SAMPLES"] // 2)     if axis_mode == "symmetric" else 0
+    x_clip_max =  (C["MAX_SAMPLES"] // 2) - 1 if axis_mode == "symmetric" else C["MAX_SAMPLES"] - 1
+    amp_max = C["AMP_INT_MAX"]  # None for 1.1
+
     clipped = []
     for (x, re, im) in samples:
-        x  = max(x_clip_min,        min(x_clip_max,        x))
-        re = max(-C["AMP_INT_MAX"], min(C["AMP_INT_MAX"], re))
-        im = max(-C["AMP_INT_MAX"], min(C["AMP_INT_MAX"], im))
+        x = max(x_clip_min, min(x_clip_max, x))
+        if amp_max is not None:
+            re = max(-amp_max, min(amp_max, re))
+            im = max(-amp_max, min(amp_max, im))
         clipped.append((x, re, im))
     samples = clipped
 
     data = SrawData(axis_mode=axis_mode, samples=samples)
     data.sort()
-    return data
+    return data, C
 
 
 # ─────────────────────────────────────────────
 # SRAW file writer
 # ─────────────────────────────────────────────
 
-def write_sraw(data: SrawData, filepath, comment=None):
+def write_sraw(data: SrawData, filepath, comment=None, constants=None):
     """
-    Write an SrawData object to a .sraw file.
+    Write an SrawData object to a .sraw file in SRAW-1.1 format.
+    Embeds resolution constants in the header so the file is self-describing.
     Optional comment string is written after the header as # lines.
+    If constants is provided, uses those values; otherwise uses get_constants().
     """
-    C = get_constants()
+    if constants is None:
+        constants = get_constants()
+    C = constants
     filepath = Path(filepath)
 
     data.sort()
@@ -261,6 +347,11 @@ def write_sraw(data: SrawData, filepath, comment=None):
             for line in comment.strip().splitlines():
                 f.write(f"# {line}\n")
         f.write(f"axis_mode,{data.axis_mode}\n")
+        # SRAW-1.1: embed resolution constants
+        f.write(f"time_res,{C['TIME_RES']}\n")
+        f.write(f"freq_res,{C['FREQ_RES']}\n")
+        f.write(f"amp_time_res,{C['AMP_TIME_RES']}\n")
+        f.write(f"amp_freq_res,{C['AMP_FREQ_RES']}\n")
         f.write("data\n")
         for x, re, im in data.samples:
             f.write(f"{x},{re},{im}\n")

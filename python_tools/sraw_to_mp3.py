@@ -20,28 +20,8 @@ import subprocess
 import tempfile
 import os
 import wave
-import shutil
-
 sys.path.insert(0, str(Path(__file__).parent))
-from sraw_lib import load_conf, get_constants, read_sraw
-
-
-def resolve_ffmpeg_path(conf: dict) -> str:
-    raw = conf.get("FFMPEG_PATH", "ffmpeg").strip().strip('"').strip("'")
-    if raw == "":
-        raw = "ffmpeg"
-
-    if os.path.isabs(raw) or os.sep in raw or (os.altsep and os.altsep in raw):
-        if not os.path.exists(raw):
-            raise FileNotFoundError(f"ffmpeg non trovato: {raw}")
-        return raw
-
-    found = shutil.which(raw)
-    if not found:
-        raise FileNotFoundError(
-            f"ffmpeg non trovato nel PATH. Valore attuale FFMPEG_PATH='{raw}'"
-        )
-    return found
+from sraw_lib import load_conf, get_constants, read_sraw, resolve_ffmpeg_path
 
 
 def dedupe_sorted_samples(samples):
@@ -111,13 +91,14 @@ def write_wav_pcm16(wav_path: str, pcm_int16: np.ndarray, sample_rate: int):
         wavf.writeframes(pcm_int16.tobytes())
 
 
-def sraw_to_mp3(input_path, output_path, bitrate="128k", part="real", verbose=False):
+def sraw_to_mp3(input_path, output_path, bitrate="128k", part="real",
+                 sample_rate=None, ffmpeg=None, verbose=False):
     conf = load_conf()
     C = get_constants(conf)
-    ffmpeg_path = resolve_ffmpeg_path(conf)
+    ffmpeg_path = ffmpeg if ffmpeg else resolve_ffmpeg_path(conf)
 
     sraw_sr = int(round(1.0 / C["TIME_RES"]))
-    mp3_out_sr = int(conf.get("MP3_EXPORT_SAMPLE_RATE_HZ", "44100"))
+    mp3_out_sr = sample_rate if sample_rate else int(conf.get("MP3_EXPORT_SAMPLE_RATE_HZ", "44100"))
 
     if verbose:
         print(f"[sraw_to_mp3] Input: {input_path}")
@@ -128,13 +109,16 @@ def sraw_to_mp3(input_path, output_path, bitrate="128k", part="real", verbose=Fa
         print(f"[sraw_to_mp3] MP3 output rate: {mp3_out_sr} Hz")
         print(f"[sraw_to_mp3] Selected part: {part}")
 
-    data = read_sraw(input_path)
+    data, file_C = read_sraw(input_path)
 
-    x_grid, re, im = build_positive_time_arrays(data, C)
+    x_grid, re, im = build_positive_time_arrays(data, file_C)
     signal_int = choose_signal_part(re, im, part)
 
-    amp_max = C["AMP_INT_MAX"]
-    signal_norm = np.clip(signal_int / amp_max, -1.0, 1.0)
+    # Normalize to [-1, 1] for PCM: map physical volts to [-1, 1]
+    # signal_phys = signal_int * AMP_TIME_RES (in volts)
+    # Reference level: 1 V = PCM ±1.0
+    amp_time_res = file_C["AMP_TIME_RES"]
+    signal_norm = np.clip(signal_int * amp_time_res, -1.0, 1.0)
     pcm_int16 = np.round(signal_norm * 32767.0).astype(np.int16)
 
     if verbose:
@@ -181,6 +165,10 @@ def main():
     parser.add_argument("output", help="Output .mp3 file path")
     parser.add_argument("--bitrate", default="128k", help="MP3 bitrate (default: 128k)")
     parser.add_argument("--part", choices=["real", "imag", "modulus"], default="real")
+    parser.add_argument("--sample-rate", type=int, default=None,
+                        help="MP3 output sample rate in Hz (default: from conf or 44100)")
+    parser.add_argument("--ffmpeg-path", default=None,
+                        help="Path to ffmpeg executable (default: from conf or system PATH)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -190,6 +178,8 @@ def main():
             args.output,
             bitrate=args.bitrate,
             part=args.part,
+            sample_rate=args.sample_rate,
+            ffmpeg=args.ffmpeg_path,
             verbose=args.verbose
         )
         print(f"OK: {args.output}")

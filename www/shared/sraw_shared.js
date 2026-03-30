@@ -15,6 +15,37 @@
 // Config loading  (mirrors get_constants() in sraw_lib.py)
 // ─────────────────────────────────────────────────────────────
 
+// SRAW-1.1 default resolutions
+const SRAW11_DEFAULTS = {
+  TIME_RES:     0.0000125,
+  FREQ_RES:     0.01,
+  AMP_TIME_RES: 0.000000001,   // 1 nV
+  AMP_FREQ_RES: 0.000000001,   // 1 nVs
+};
+
+// Legacy SRAW-1 resolutions
+const SRAW1_LEGACY = {
+  TIME_RES:     0.0000125,
+  FREQ_RES:     0.01,
+  AMP_TIME_RES: 0.00001,       // 10 µV
+  AMP_FREQ_RES: 0.00001,       // 10 µVs
+};
+
+function makeConstants(maxSamples, timeRes, freqRes, ampTimeRes, ampFreqRes) {
+  const ampIntMax = ampTimeRes >= 1e-6 ? Math.round(5.0 / ampTimeRes) : null;
+  return {
+    MAX_SAMPLES:  maxSamples,
+    TIME_RES:     timeRes,
+    FREQ_RES:     freqRes,
+    AMP_TIME_RES: ampTimeRes,
+    AMP_FREQ_RES: ampFreqRes,
+    AMP_INT_MAX:  ampIntMax,
+    AMP_INT_MIN:  ampIntMax !== null ? -ampIntMax : null,
+    TIME_MAX:     maxSamples * timeRes / 2,
+    FREQ_MAX:     maxSamples * freqRes / 2,
+  };
+}
+
 function parseConf(text) {
   const conf = {};
   for (const raw of text.split('\n')) {
@@ -24,28 +55,15 @@ function parseConf(text) {
     if (eq < 0) continue;
     conf[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
   }
-  // Primitives
-  const timeRes    = parseFloat(conf['TIME_RESOLUTION_S']);
-  const freqRes    = parseFloat(conf['FREQ_RESOLUTION_HZ']);
-  const ampTimeRes = parseFloat(conf['AMP_TIME_RESOLUTION_V']);
-  const ampFreqRes = parseFloat(conf['AMP_FREQ_RESOLUTION_VS']);
   const maxSamples = parseInt(conf['MAX_SAMPLES']);
-  // Derived (mirrors get_constants() in sraw_lib.py)
-  const ampIntMax  = Math.round(5.0 / ampTimeRes);   // 500000
-  const timeMax    = maxSamples * timeRes / 2;        // 12.5 s
-  const freqMax    = maxSamples * freqRes / 2;        // 10000 Hz
-  return {
-    FORMAT_VER:   conf['FORMAT_VERSION'],
-    MAX_SAMPLES:  maxSamples,
-    TIME_RES:     timeRes,
-    FREQ_RES:     freqRes,
-    AMP_TIME_RES: ampTimeRes,
-    AMP_FREQ_RES: ampFreqRes,
-    AMP_INT_MAX:  ampIntMax,
-    AMP_INT_MIN: -ampIntMax,
-    TIME_MAX:     timeMax,
-    FREQ_MAX:     freqMax,
-  };
+  // Use SRAW-1.1 defaults; sraw.conf no longer has resolution values
+  return makeConstants(
+    maxSamples,
+    SRAW11_DEFAULTS.TIME_RES,
+    SRAW11_DEFAULTS.FREQ_RES,
+    SRAW11_DEFAULTS.AMP_TIME_RES,
+    SRAW11_DEFAULTS.AMP_FREQ_RES,
+  );
 }
 
 /**
@@ -65,9 +83,11 @@ async function loadConf(confRelPath) {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Parse a SRAW-1 text string.
- * Returns { axisMode, samples } where samples is an array of
- * { x, re, im } objects sorted by x.
+ * Parse a SRAW file (SRAW-1 or SRAW-1.1).
+ * Returns { axisMode, samples, fileConstants } where:
+ *   samples is an array of { x, re, im } objects sorted by x,
+ *   fileConstants is a constants object (like makeConstants output)
+ *     derived from embedded header directives (1.1) or legacy defaults (1.0).
  * Throws on format errors.
  */
 function parseSraw(text) {
@@ -77,6 +97,7 @@ function parseSraw(text) {
   let axisMode = null;
   let inData = false;
   const samples = [];
+  const fc = {};  // per-file constants
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
@@ -86,6 +107,12 @@ function parseSraw(text) {
         throw new Error(`axis_mode non valido: "${axisMode}"`);
       continue;
     }
+    // SRAW-1.1 per-file constants
+    if (line.startsWith('time_res,'))     { fc.timeRes    = parseFloat(line.split(',')[1]); continue; }
+    if (line.startsWith('freq_res,'))     { fc.freqRes    = parseFloat(line.split(',')[1]); continue; }
+    if (line.startsWith('amp_time_res,')) { fc.ampTimeRes  = parseFloat(line.split(',')[1]); continue; }
+    if (line.startsWith('amp_freq_res,')) { fc.ampFreqRes  = parseFloat(line.split(',')[1]); continue; }
+
     if (line === 'data') { inData = true; continue; }
     if (!inData) continue;
 
@@ -103,19 +130,37 @@ function parseSraw(text) {
   if (samples.length === 0) throw new Error('Nessun campione trovato');
 
   samples.sort((a, b) => a.x - b.x);
-  return { axisMode, samples };
+
+  // Build per-file constants
+  const hasEmbedded = ('ampTimeRes' in fc);
+  const defaults = hasEmbedded ? SRAW11_DEFAULTS : SRAW1_LEGACY;
+  const fileConstants = makeConstants(
+    C ? C.MAX_SAMPLES : 2000000,
+    fc.timeRes    ?? defaults.TIME_RES,
+    fc.freqRes    ?? defaults.FREQ_RES,
+    fc.ampTimeRes ?? defaults.AMP_TIME_RES,
+    fc.ampFreqRes ?? defaults.AMP_FREQ_RES,
+  );
+
+  return { axisMode, samples, fileConstants };
 }
 
 /**
- * Serialize samples to a SRAW-1 text string.
+ * Serialize samples to a SRAW-1.1 text string with embedded constants.
  * samples: array of { x, re, im }
  * axisMode: 'symmetric' | 'positive'
  * comment: optional string appended as # lines after header
+ * constants: optional constants object (defaults to global C)
  */
-function serializeSraw(samples, axisMode, comment) {
+function serializeSraw(samples, axisMode, comment, constants) {
+  const k = constants || C;
   const lines = ['SRAW-1'];
   if (comment) comment.trim().split('\n').forEach(l => lines.push('# ' + l));
   lines.push(`axis_mode,${axisMode}`);
+  lines.push(`time_res,${k.TIME_RES}`);
+  lines.push(`freq_res,${k.FREQ_RES}`);
+  lines.push(`amp_time_res,${k.AMP_TIME_RES}`);
+  lines.push(`amp_freq_res,${k.AMP_FREQ_RES}`);
   lines.push('data');
   for (const s of samples) lines.push(`${s.x},${s.re},${s.im}`);
   return lines.join('\n') + '\n';
@@ -123,9 +168,11 @@ function serializeSraw(samples, axisMode, comment) {
 
 /**
  * Clamp an integer amplitude value to the valid SRAW range.
+ * For SRAW-1.1 (AMP_INT_MAX === null), no clamping.
  * Requires global C.
  */
 function clampAmp(v) {
+  if (C.AMP_INT_MAX === null) return v;
   if (v < -C.AMP_INT_MAX) return -C.AMP_INT_MAX;
   if (v >  C.AMP_INT_MAX) return  C.AMP_INT_MAX;
   return v;
@@ -500,6 +547,7 @@ function bindPanZoom(opts) {
   const getMode  = opts.getZoomMode  || (() => 'xy');
   const onUpdate = opts.onUpdate     || (() => {});
   const onMove   = opts.onMouseMove  || (() => {});
+  const onLeave  = opts.onMouseLeave || (() => {});
   const factor   = opts.zoomFactor   || 1.15;
 
   cv.addEventListener('mousedown', e => {
@@ -525,12 +573,12 @@ function bindPanZoom(opts) {
       onUpdate();
     } else {
       const [wx, wy] = canvasToWorld(cx, cy);
-      onMove(wx, wy);
+      onMove(wx, wy, cx, cy);
     }
   });
 
   cv.addEventListener('mouseup',    () => { pan.active = false; cv.style.cursor = 'crosshair'; });
-  cv.addEventListener('mouseleave', () => { pan.active = false; cv.style.cursor = 'crosshair'; });
+  cv.addEventListener('mouseleave', () => { pan.active = false; cv.style.cursor = 'crosshair'; onLeave(); });
 
   cv.addEventListener('wheel', e => {
     e.preventDefault();
@@ -562,12 +610,13 @@ function bindPanZoom(opts) {
 function clipSrawSamples(samples, axisMode) {
   const xMin = axisMode === 'symmetric' ? -(C.MAX_SAMPLES / 2) : 0;
   const xMax = axisMode === 'symmetric' ?  (C.MAX_SAMPLES / 2) - 1 : C.MAX_SAMPLES - 1;
+  const ampMax = C.AMP_INT_MAX;
   return samples
     .filter(s => s.x >= xMin && s.x <= xMax)
     .map(s => ({
       x:  s.x,
-      re: Math.max(-C.AMP_INT_MAX, Math.min(C.AMP_INT_MAX, s.re)),
-      im: Math.max(-C.AMP_INT_MAX, Math.min(C.AMP_INT_MAX, s.im)),
+      re: ampMax !== null ? Math.max(-ampMax, Math.min(ampMax, s.re)) : s.re,
+      im: ampMax !== null ? Math.max(-ampMax, Math.min(ampMax, s.im)) : s.im,
     }));
 }
 

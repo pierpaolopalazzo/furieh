@@ -19,28 +19,8 @@ import subprocess
 import tempfile
 import os
 import wave
-import shutil
-
 sys.path.insert(0, str(Path(__file__).parent))
-from sraw_lib import load_conf, get_constants, SrawData, write_sraw
-
-
-def resolve_ffmpeg_path(conf: dict) -> str:
-    raw = conf.get("FFMPEG_PATH", "ffmpeg").strip().strip('"').strip("'")
-    if raw == "":
-        raw = "ffmpeg"
-
-    if os.path.isabs(raw) or os.sep in raw or (os.altsep and os.altsep in raw):
-        if not os.path.exists(raw):
-            raise FileNotFoundError(f"ffmpeg non trovato: {raw}")
-        return raw
-
-    found = shutil.which(raw)
-    if not found:
-        raise FileNotFoundError(
-            f"ffmpeg non trovato nel PATH. Valore attuale FFMPEG_PATH='{raw}'"
-        )
-    return found
+from sraw_lib import load_conf, get_constants, SrawData, write_sraw, resolve_ffmpeg_path
 
 
 def decode_mp3_to_wav(input_path: str, target_sr: int, ffmpeg_path: str) -> str:
@@ -112,19 +92,24 @@ def choose_channel(pcm: np.ndarray, channel: str) -> np.ndarray:
     return pcm.mean(axis=1).astype(np.float32)
 
 
-def mp3_to_sraw(input_path, output_path, channel="MIX", verbose=False):
+def mp3_to_sraw(input_path, output_path, channel="MIX", ffmpeg=None, verbose=False):
     conf = load_conf()
     C = get_constants(conf)
-    ffmpeg_path = resolve_ffmpeg_path(conf)
+    ffmpeg_path = ffmpeg if ffmpeg else resolve_ffmpeg_path(conf)
 
     sraw_sr = int(round(1.0 / C["TIME_RES"]))
-    amp_max = C["AMP_INT_MAX"]
+    amp_time_res = C["AMP_TIME_RES"]
+    amp_max = C["AMP_INT_MAX"]  # None for SRAW-1.1
+
+    # PCM [-1, 1] maps to ±1 V physical
+    pcm_ref_volts = 1.0
 
     if verbose:
         print(f"[mp3_to_sraw] Input: {input_path}")
         print(f"[mp3_to_sraw] Output: {output_path}")
         print(f"[mp3_to_sraw] ffmpeg: {ffmpeg_path}")
         print(f"[mp3_to_sraw] TIME_RES: {C['TIME_RES']} s")
+        print(f"[mp3_to_sraw] AMP_TIME_RES: {amp_time_res} V")
         print(f"[mp3_to_sraw] Sample rate target: {sraw_sr} Hz")
         print(f"[mp3_to_sraw] Channel mode: {channel}")
 
@@ -147,8 +132,10 @@ def mp3_to_sraw(input_path, output_path, channel="MIX", verbose=False):
                 )
             pcm = pcm[:C["MAX_SAMPLES"]]
 
-        real_ints = np.round(pcm * amp_max).astype(np.int32)
-        real_ints = np.clip(real_ints, -amp_max, amp_max)
+        # PCM float -> physical volts -> SRAW integers
+        real_ints = np.round(pcm * pcm_ref_volts / amp_time_res).astype(np.int64)
+        if amp_max is not None:
+            real_ints = np.clip(real_ints, -amp_max, amp_max)
 
         samples = [(int(i), int(real_ints[i]), 0) for i in range(len(real_ints))]
         data = SrawData(axis_mode="positive", samples=samples)
@@ -160,12 +147,13 @@ def mp3_to_sraw(input_path, output_path, channel="MIX", verbose=False):
             f"SRAW domain: time\n"
             f"axis_mode: positive\n"
             f"TIME_RES: {C['TIME_RES']} s\n"
+            f"AMP_TIME_RES: {amp_time_res} V\n"
             f"Sample rate: {sraw_sr} Hz\n"
             f"Imported samples: {len(real_ints)}\n"
             f"Input peak (no renormalization): {peak_in:.6f}"
         )
 
-        write_sraw(data, output_path, comment=comment)
+        write_sraw(data, output_path, comment=comment, constants=C)
 
         if verbose:
             duration_s = len(real_ints) * C["TIME_RES"]
@@ -182,11 +170,14 @@ def main():
     parser.add_argument("input", help="Input MP3 file path")
     parser.add_argument("output", help="Output .sraw file path")
     parser.add_argument("--channel", choices=["L", "R", "MIX"], default="MIX")
+    parser.add_argument("--ffmpeg-path", default=None,
+                        help="Path to ffmpeg executable (default: from conf or system PATH)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
     try:
-        mp3_to_sraw(args.input, args.output, channel=args.channel, verbose=args.verbose)
+        mp3_to_sraw(args.input, args.output, channel=args.channel,
+                     ffmpeg=args.ffmpeg_path, verbose=args.verbose)
         print(f"OK: {args.output}")
         sys.exit(0)
     except Exception as e:

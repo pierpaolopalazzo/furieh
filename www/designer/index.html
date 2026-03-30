@@ -248,6 +248,7 @@
 
   <div id="canvas-wrap">
     <canvas id="cv"></canvas>
+    <canvas id="cv-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
   </div>
 </div>
 
@@ -336,7 +337,7 @@ function getAmpUnit()             { return getDomain() === 'time' ? 'V' : 'Vs'; 
 function getXRes()                { return getDomain() === 'time' ? C.TIME_RES     : C.FREQ_RES;      }
 function getAmpRes()              { return getDomain() === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES;  }
 function getHalfRangeXPhys()      { return getDomain() === 'time' ? C.TIME_MAX     : C.FREQ_MAX;      }
-function getAmpDisplayHalfRange() { return 2 * C.AMP_INT_MAX * getAmpRes(); }
+function getAmpDisplayHalfRange() { return C.AMP_INT_MAX !== null ? 2 * C.AMP_INT_MAX * getAmpRes() : 10; }
 function getHardXRange()          { return { min: -(C.MAX_SAMPLES / 2), max: (C.MAX_SAMPLES / 2) - 1 }; }
 
 function fmtFixedTrim(v, digits = 6) {
@@ -627,6 +628,7 @@ function denseToKnots(dense) {
 }
 
 function clampDense(dense) {
+  if (C.AMP_INT_MAX === null) return; // SRAW-1.1: no limits
   const m = C.AMP_INT_MAX;
   for (let i = 0; i < dense.re.length; i++) {
     dense.re[i] = Math.max(-m, Math.min(m, dense.re[i]));
@@ -781,11 +783,12 @@ async function applyOp() {
       if (op === 'sum_file') {
         for (let i = 0; i < len; i++) { re[i] += bDense.re[i]; im[i] += bDense.im[i]; }
       } else {
-        const m = C.AMP_INT_MAX;
+        // Product normalization: integers^2 -> integers via AMP_TIME_RES
+        const amp = C.AMP_TIME_RES;
         for (let i = 0; i < len; i++) {
           const ar = re[i], ai = im[i], br = bDense.re[i], bi = bDense.im[i];
-          re[i] = (ar * br - ai * bi) / m;
-          im[i] = (ar * bi + ai * br) / m;
+          re[i] = (ar * br - ai * bi) * amp;
+          im[i] = (ar * bi + ai * br) * amp;
         }
       }
     }
@@ -806,6 +809,8 @@ function openFileBrowserLoad() {
     onPick: (relPath, text) => {
       try {
         const parsed   = parseSraw(text);
+        // Update global C with per-file constants
+        if (parsed.fileConstants) Object.assign(C, parsed.fileConstants);
         const incoming = denseFromKnots(parsed.samples);
         if (!canvasDense) {
           canvasDense = incoming;
@@ -861,7 +866,7 @@ function draw() {
   ctx.fillStyle = '#07090c';
   ctx.fillRect(0, 0, W, H);
 
-  drawOutOfRangeZones(W, H, 'symmetric', -C.AMP_INT_MAX, C.AMP_INT_MAX);
+  if (C.AMP_INT_MAX !== null) drawOutOfRangeZones(W, H, 'symmetric', -C.AMP_INT_MAX, C.AMP_INT_MAX);
   drawGridAndAxes(W, H,
     x => fmtNum(xPhys(x)) + getAxisUnit(),
     y => fmtNum(yPhys(y)) + getAmpUnit());
@@ -881,13 +886,60 @@ function draw() {
 }
 
 // ── Events ────────────────────────────────────────────────────────
+const cvOverlay  = document.getElementById('cv-overlay');
+const ctxOverlay = cvOverlay.getContext('2d');
+
+function drawOverlay(wx) {
+  cvOverlay.width  = cv.width;
+  cvOverlay.height = cv.height;
+  ctxOverlay.clearRect(0, 0, cvOverlay.width, cvOverlay.height);
+  if (!currentPreviewSamples || currentPreviewSamples.length === 0) return;
+
+  const yVal = interpolate(currentPreviewSamples, wx).re;
+  const [dotCx, dotCy] = worldToCanvas(wx, yVal);
+
+  const r = 5 * devicePixelRatio;
+  ctxOverlay.beginPath();
+  ctxOverlay.arc(dotCx, dotCy, r, 0, Math.PI * 2);
+  ctxOverlay.fillStyle = '#ff4060';
+  ctxOverlay.fill();
+  ctxOverlay.strokeStyle = '#fff';
+  ctxOverlay.lineWidth = 1.5 * devicePixelRatio;
+  ctxOverlay.stroke();
+
+  const xLabel = fmtNum(xPhys(wx)) + ' ' + getAxisUnit();
+  const yLabel = fmtNum(yPhys(yVal)) + ' ' + getAmpUnit();
+  const label = xLabel + '  |  ' + yLabel;
+
+  const fontSize = Math.round(13 * devicePixelRatio);
+  ctxOverlay.font = `bold ${fontSize}px 'Share Tech Mono', monospace`;
+  const tw = ctxOverlay.measureText(label).width;
+  const pad = 6 * devicePixelRatio;
+
+  let lx = dotCx + 12 * devicePixelRatio;
+  let ly = dotCy - 12 * devicePixelRatio;
+  if (lx + tw + pad > cvOverlay.width) lx = dotCx - tw - 12 * devicePixelRatio;
+  if (ly - fontSize - pad / 2 < 0) ly = dotCy + 20 * devicePixelRatio;
+
+  ctxOverlay.fillStyle = 'rgba(7,9,12,0.85)';
+  ctxOverlay.fillRect(lx - pad, ly - fontSize - pad / 2, tw + pad * 2, fontSize + pad);
+  ctxOverlay.fillStyle = '#00ff88';
+  ctxOverlay.fillText(label, lx, ly);
+}
+
+function clearOverlay() {
+  ctxOverlay.clearRect(0, 0, cvOverlay.width, cvOverlay.height);
+}
+
 bindPanZoom({
   getZoomMode: () => document.getElementById('zoom-mode').value,
-  onUpdate: draw,
-  onMouseMove: (wx, wy) => {
+  onUpdate: () => { draw(); clearOverlay(); },
+  onMouseMove: (wx, wy, cx, cy) => {
     document.getElementById('st-x').textContent = fmtNum(xPhys(wx)) + getAxisUnit();
     document.getElementById('st-y').textContent = fmtNum(yPhys(wy)) + getAmpUnit();
+    drawOverlay(wx);
   },
+  onMouseLeave: clearOverlay,
 });
 
 new ResizeObserver(resize).observe(cv);
@@ -910,6 +962,19 @@ loadConf('../../conf/sraw.conf')
     updateDomainUi();
     updateOpUi();
     resize();
+    const fp = new URLSearchParams(location.search).get('file');
+    if (fp) {
+      const url = '../data/' + fp.split('/').map(encodeURIComponent).join('/');
+      fetch(url).then(r => { if (r.ok) return r.text(); throw new Error('HTTP ' + r.status); })
+        .then(text => {
+          const parsed = parseSraw(text);
+          if (parsed.fileConstants) Object.assign(C, parsed.fileConstants);
+          canvasDense = denseFromKnots(parsed.samples);
+          currentDesign = null;
+          refreshFromDense();
+        })
+        .catch(err => alert('Errore apertura file: ' + err.message));
+    }
   })
   .catch(err => alert('Errore caricamento sraw.conf: ' + err.message));
 </script>

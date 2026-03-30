@@ -46,7 +46,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $ch = in_array($_POST['channel'] ?? 'MIX', ['L', 'R', 'MIX'], true) ? $_POST['channel'] : 'MIX';
 
-            $ok = run_python('mp3_to_sraw.py', [$inp_abs, $out_abs, '--channel', $ch, '--verbose'], $out, $err);
+            $args = [$inp_abs, $out_abs, '--channel', $ch, '--verbose'];
+            $ffmpeg = trim($_POST['ffmpeg_path'] ?? '');
+            if ($ffmpeg !== '') {
+                $args[] = '--ffmpeg-path';
+                $args[] = $ffmpeg;
+            }
+
+            $ok = run_python('mp3_to_sraw.py', $args, $out, $err);
             $message = $ok ? "✓ Convertito: " . h($out_rel) : '';
             $error   = $err ?: '';
 
@@ -59,7 +66,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $br = preg_match('/^\d+k$/', $_POST['bitrate'] ?? '') ? $_POST['bitrate'] : '128k';
             $part = in_array($_POST['part'] ?? 'real', ['real', 'imag', 'modulus'], true) ? $_POST['part'] : 'real';
 
-            $ok = run_python('sraw_to_mp3.py', [$inp_abs, $out_abs, '--bitrate', $br, '--part', $part, '--verbose'], $out, $err);
+            $args = [$inp_abs, $out_abs, '--bitrate', $br, '--part', $part, '--verbose'];
+            $ffmpeg = trim($_POST['ffmpeg_path'] ?? '');
+            if ($ffmpeg !== '') {
+                $args[] = '--ffmpeg-path';
+                $args[] = $ffmpeg;
+            }
+            $sr = $_POST['sample_rate'] ?? '';
+            if ($sr !== '' && ctype_digit($sr)) {
+                $args[] = '--sample-rate';
+                $args[] = $sr;
+            }
+
+            $ok = run_python('sraw_to_mp3.py', $args, $out, $err);
             $message = $ok ? "✓ Convertito: " . h($out_rel) : '';
             $error   = $err ?: '';
 
@@ -98,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
         } elseif ($tool === 'sraw_op') {
-            $op = in_array($_POST['op'] ?? '', ['sum', 'mul', 'gain', 'shift', 'mirror_y', 'dilate_x'], true)
+            $op = in_array($_POST['op'] ?? '', ['sum', 'mul', 'gain', 'shift', 'mirror_y', 'conj', 'dilate_x'], true)
                 ? $_POST['op']
                 : 'gain';
 

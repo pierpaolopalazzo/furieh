@@ -188,6 +188,25 @@
 </div>
 
 <div class="card">
+  <h2>Coniugazione</h2>
+  <form method="POST">
+    <input type="hidden" name="tool" value="sraw_op">
+    <input type="hidden" name="op" value="conj">
+
+    <label>File A</label>
+    <select name="input_a" class="sraw-select">
+      <?php foreach ($sraw_files as $f): ?><option value="<?= h($f) ?>"><?= h($f) ?></option><?php endforeach; ?>
+      <?php if (!$sraw_files): ?><option value="">— nessun SRAW —</option><?php endif; ?>
+    </select>
+
+    <label>Output</label>
+    <input type="text" name="output_sraw" value="conj_out.sraw">
+
+    <button type="submit">Coniuga →</button>
+  </form>
+</div>
+
+<div class="card">
   <h2>Dilazione X</h2>
   <form method="POST">
     <input type="hidden" name="tool" value="sraw_op">

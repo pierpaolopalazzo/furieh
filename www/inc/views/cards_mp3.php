@@ -2,6 +2,7 @@
   <h2>MP3 → SRAW</h2>
   <form method="POST">
     <input type="hidden" name="tool" value="mp3_to_sraw">
+    <input type="hidden" name="ffmpeg_path" class="ffmpeg-path-hidden" value="">
 
     <label>File MP3 sorgente</label>
     <select name="input_mp3" class="mp3-select">
@@ -29,6 +30,7 @@
   <h2>SRAW → MP3</h2>
   <form method="POST">
     <input type="hidden" name="tool" value="sraw_to_mp3">
+    <input type="hidden" name="ffmpeg_path" class="ffmpeg-path-hidden" value="">
 
     <label>File SRAW sorgente</label>
     <select name="input_sraw" class="sraw-select">
@@ -56,8 +58,23 @@
       <option value="modulus">modulo</option>
     </select>
 
+    <label>Sample rate output</label>
+    <select name="sample_rate" id="setup-sample-rate">
+      <option value="22050">22050 Hz</option>
+      <option value="44100" selected>44100 Hz</option>
+      <option value="48000">48000 Hz</option>
+    </select>
+
     <button type="submit">Converti →</button>
   </form>
+</div>
+
+<div class="card full">
+  <h2>Setup MP3</h2>
+  <label>Percorso ffmpeg</label>
+  <input type="text" id="setup-ffmpeg-path" placeholder="ffmpeg"
+         value="">
+  <div class="hint">Percorso assoluto o nome eseguibile nel PATH. Salvato nel browser.</div>
 </div>
 
 <div class="card full">

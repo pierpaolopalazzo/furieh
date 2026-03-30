@@ -244,6 +244,7 @@
 <div id="main">
   <div id="canvas-wrap">
     <canvas id="cv"></canvas>
+    <canvas id="cv-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
     <div id="error-msg"></div>
   </div>
 
@@ -369,10 +370,10 @@ function draw() {
     return;
   }
 
-  const yHardMin = viewMode === 'ph' ? -Math.PI : -C.AMP_INT_MAX;
-  const yHardMax = viewMode === 'ph' ?  Math.PI :  C.AMP_INT_MAX;
+  const yHardMin = viewMode === 'ph' ? -Math.PI : (C.AMP_INT_MAX !== null ? -C.AMP_INT_MAX : null);
+  const yHardMax = viewMode === 'ph' ?  Math.PI : (C.AMP_INT_MAX !== null ?  C.AMP_INT_MAX : null);
 
-  drawOutOfRangeZones(W, H, sraw.axisMode, yHardMin, yHardMax);
+  if (yHardMin !== null) drawOutOfRangeZones(W, H, sraw.axisMode, yHardMin, yHardMax);
   drawGridAndAxes(W, H,
     x => fmtNum(xPhys(x)) + xUnit(),
     y => fmtNum(yPhys(y)) + yUnit()
@@ -429,7 +430,6 @@ function updateInfoPanel() {
     if (samples[i].x > xMax) xMax = samples[i].x;
   }
   const span  = xPhys(xMax) - xPhys(xMin);
-  const yTheo = C.AMP_INT_MAX * (domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES);
   const rows = [
     ['campioni',  samples.length],
     ['axis_mode', sraw.axisMode],
@@ -438,8 +438,12 @@ function updateInfoPanel() {
     [domain === 'time' ? 't_min' : 'f_min', fmtNum(xPhys(xMin)) + xUnit()],
     [domain === 'time' ? 't_max' : 'f_max', fmtNum(xPhys(xMax)) + xUnit()],
     ['span', fmtNum(span) + xUnit()],
-    [domain === 'time' ? 'y_max teorico' : 'Y_max teorico', `${fmtNum(yTheo)}${yUnit()}`],
+    ['amp_res', fmtNum(domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES) + yUnit()],
   ];
+  if (C.AMP_INT_MAX !== null) {
+    const yTheo = C.AMP_INT_MAX * (domain === 'time' ? C.AMP_TIME_RES : C.AMP_FREQ_RES);
+    rows.push([domain === 'time' ? 'y_max' : 'Y_max', `${fmtNum(yTheo)}${yUnit()}`]);
+  }
   el.innerHTML = rows.map(([k, v]) =>
     `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${v}</span></div>`
   ).join('');
@@ -455,7 +459,12 @@ function showError(msg) {
 
 function loadText(text, name) {
   try {
-    sraw = parseSraw(text);
+    const parsed = parseSraw(text);
+    sraw = parsed;
+    // Update global C with per-file constants (SRAW-1.1)
+    if (parsed.fileConstants) {
+      Object.assign(C, parsed.fileConstants);
+    }
     document.getElementById('filename').textContent = name;
     document.getElementById('st-n').textContent = sraw.samples.length;
     fitViewport();
@@ -468,22 +477,81 @@ function loadText(text, name) {
 
 
 const canvasWrap = document.getElementById('canvas-wrap');
+const cvOverlay  = document.getElementById('cv-overlay');
+const ctxOverlay = cvOverlay.getContext('2d');
+
+function drawOverlay(wx, wy, cx, cy) {
+  cvOverlay.width  = cv.width;
+  cvOverlay.height = cv.height;
+  ctxOverlay.clearRect(0, 0, cvOverlay.width, cvOverlay.height);
+  if (!sraw || sraw.samples.length === 0) return;
+
+  // Snap to signal value at mouse X position
+  const yVal = getY(sraw.samples, wx);
+  const [dotCx, dotCy] = worldToCanvas(wx, yVal);
+
+  // Draw dot
+  const r = 5 * devicePixelRatio;
+  ctxOverlay.beginPath();
+  ctxOverlay.arc(dotCx, dotCy, r, 0, Math.PI * 2);
+  ctxOverlay.fillStyle = '#ff4060';
+  ctxOverlay.fill();
+  ctxOverlay.strokeStyle = '#fff';
+  ctxOverlay.lineWidth = 1.5 * devicePixelRatio;
+  ctxOverlay.stroke();
+
+  // Label text
+  const xLabel = fmtNum(xPhys(wx)) + ' ' + xUnit();
+  const yLabel = fmtNum(yPhys(yVal)) + ' ' + yUnit();
+  const label = xLabel + '  |  ' + yLabel;
+
+  const fontSize = Math.round(13 * devicePixelRatio);
+  ctxOverlay.font = `bold ${fontSize}px 'Share Tech Mono', monospace`;
+  const tw = ctxOverlay.measureText(label).width;
+  const pad = 6 * devicePixelRatio;
+
+  // Position label near dot, but keep inside canvas
+  let lx = dotCx + 12 * devicePixelRatio;
+  let ly = dotCy - 12 * devicePixelRatio;
+  if (lx + tw + pad > cvOverlay.width) lx = dotCx - tw - 12 * devicePixelRatio;
+  if (ly - fontSize - pad < 0) ly = dotCy + 20 * devicePixelRatio;
+
+  ctxOverlay.fillStyle = 'rgba(7,9,12,0.85)';
+  ctxOverlay.fillRect(lx - pad, ly - fontSize - pad / 2, tw + pad * 2, fontSize + pad);
+  ctxOverlay.fillStyle = '#00e5ff';
+  ctxOverlay.fillText(label, lx, ly);
+}
+
+function clearOverlay() {
+  ctxOverlay.clearRect(0, 0, cvOverlay.width, cvOverlay.height);
+}
 
 // ── Pan / zoom ────────────────────────────────────────────────
 bindPanZoom({
   getZoomMode: () => document.getElementById('zoom-mode').value,
-  onUpdate: draw,
-  onMouseMove: (wx, wy) => {
+  onUpdate: () => { draw(); clearOverlay(); },
+  onMouseMove: (wx, wy, cx, cy) => {
     document.getElementById('st-x').textContent = fmtNum(xPhys(wx)) + xUnit();
     document.getElementById('st-y').textContent = fmtNum(yPhys(wy)) + yUnit();
+    drawOverlay(wx, wy, cx, cy);
   },
+  onMouseLeave: clearOverlay,
 });
 
 new ResizeObserver(resize).observe(cv);
 
-// Boot: load conf first, then render
+// Boot: load conf first, then render, then autoload ?file= if present
 loadConf('../../conf/sraw.conf')
-  .then(conf => { C = conf; resize(); })
+  .then(conf => {
+    C = conf; resize();
+    const fp = new URLSearchParams(location.search).get('file');
+    if (fp) {
+      const url = '../data/' + fp.split('/').map(encodeURIComponent).join('/');
+      fetch(url).then(r => { if (r.ok) return r.text(); throw new Error('HTTP ' + r.status); })
+        .then(text => loadText(text, fp))
+        .catch(err => showError('Errore apertura file: ' + err.message));
+    }
+  })
   .catch(err  => { showError('Errore caricamento sraw.conf: ' + err.message); });
 </script>
 </body>

@@ -15,6 +15,7 @@ Operazioni:
 - gain      : A * gain
 - shift     : y(x) = A(x - shift)
 - mirror_y  : y(x) = A(-x)
+- conj      : y(x) = conj(A(x))   (parte immaginaria negata)
 - dilate_x  : y(x) = A(x / factor)
 """
 
@@ -26,7 +27,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sraw_lib import get_constants
+from sraw_lib import get_constants, make_constants
 
 
 def axis_bounds(axis_mode: str, n: int):
@@ -60,9 +61,10 @@ def stream_read_dense_sraw(filepath: str, c: dict):
     - punti duplicati: vince l'ultimo
     - interpolazione lineare tra punti consecutivi
     - fuori dal supporto noto: zero
+
+    Returns dict with keys: axis_mode, xmin, xmax, re, im, constants.
     """
     n = c["MAX_SAMPLES"]
-    amp_max = c["AMP_INT_MAX"]
 
     with open(filepath, "r", encoding="utf-8") as f:
         header = f.readline().strip()
@@ -71,6 +73,7 @@ def stream_read_dense_sraw(filepath: str, c: dict):
 
         axis_mode = None
         in_data = False
+        file_consts = {}
 
         for line in f:
             s = line.strip()
@@ -81,6 +84,19 @@ def stream_read_dense_sraw(filepath: str, c: dict):
                 if axis_mode not in ("positive", "symmetric"):
                     raise ValueError(f"axis_mode non valido in {Path(filepath).name}: {axis_mode}")
                 continue
+            # SRAW-1.1 per-file constants
+            if s.startswith("time_res,"):
+                file_consts["time_res"] = float(s.split(",", 1)[1].strip())
+                continue
+            if s.startswith("freq_res,"):
+                file_consts["freq_res"] = float(s.split(",", 1)[1].strip())
+                continue
+            if s.startswith("amp_time_res,"):
+                file_consts["amp_time_res"] = float(s.split(",", 1)[1].strip())
+                continue
+            if s.startswith("amp_freq_res,"):
+                file_consts["amp_freq_res"] = float(s.split(",", 1)[1].strip())
+                continue
             if s == "data":
                 in_data = True
                 break
@@ -89,6 +105,13 @@ def stream_read_dense_sraw(filepath: str, c: dict):
             raise ValueError(f"axis_mode mancante in {Path(filepath).name}")
         if not in_data:
             raise ValueError(f"Sezione data mancante in {Path(filepath).name}")
+
+        # Build per-file constants
+        if file_consts:
+            file_c = make_constants(**file_consts, max_samples=n)
+        else:
+            file_c = make_constants(amp_time_res=0.00001, amp_freq_res=0.00001, max_samples=n)
+        amp_max = file_c["AMP_INT_MAX"]
 
         xmin, xmax = axis_bounds(axis_mode, n)
         length = xmax - xmin + 1
@@ -120,8 +143,9 @@ def stream_read_dense_sraw(filepath: str, c: dict):
             if x > xmax:
                 x = xmax
 
-            r = clip_amp_scalar(r, amp_max)
-            j = clip_amp_scalar(j, amp_max)
+            if amp_max is not None:
+                r = clip_amp_scalar(r, amp_max)
+                j = clip_amp_scalar(j, amp_max)
 
             cur = (x, float(r), float(j))
 
@@ -173,6 +197,7 @@ def stream_read_dense_sraw(filepath: str, c: dict):
             "xmax": xmax,
             "re": re,
             "im": im,
+            "constants": file_c,
         }
 
 
@@ -221,20 +246,24 @@ def resample_dense(sig: dict, xq: np.ndarray):
 
 def write_dense_sraw(filepath: str, axis_mode: str, re: np.ndarray, im: np.ndarray, c: dict, comment: str = ""):
     """
-    Scrive un array denso in formato SRAW-1 usando rappresentazione knot-sparse:
+    Scrive un array denso in formato SRAW-1.1 usando rappresentazione knot-sparse:
     vengono scritti solo i campioni non-zero più un campione zero di guardia
     immediatamente prima e dopo ogni zona attiva. Questo riduce drasticamente
     le dimensioni del file per segnali sparsi (es. spettri a poche righe).
     """
-    amp_max = c["AMP_INT_MAX"]
+    amp_max = c["AMP_INT_MAX"]  # None for SRAW-1.1
     xmin, xmax = axis_bounds(axis_mode, c["MAX_SAMPLES"])
     length = xmax - xmin + 1
 
     if len(re) != length or len(im) != length:
         raise ValueError("Dimensione array di output non coerente con axis_mode / MAX_SAMPLES")
 
-    re_i = np.clip(np.rint(re), -amp_max, amp_max).astype(np.int32)
-    im_i = np.clip(np.rint(im), -amp_max, amp_max).astype(np.int32)
+    if amp_max is not None:
+        re_i = np.clip(np.rint(re), -amp_max, amp_max).astype(np.int64)
+        im_i = np.clip(np.rint(im), -amp_max, amp_max).astype(np.int64)
+    else:
+        re_i = np.rint(re).astype(np.int64)
+        im_i = np.rint(im).astype(np.int64)
 
     # Costruisci insieme degli indici da scrivere (knot-sparse con guardie zero)
     nonzero = np.flatnonzero((re_i != 0) | (im_i != 0))
@@ -256,6 +285,11 @@ def write_dense_sraw(filepath: str, axis_mode: str, re: np.ndarray, im: np.ndarr
             for line in comment.strip().splitlines():
                 f.write(f"# {line}\n")
         f.write(f"axis_mode,{axis_mode}\n")
+        # SRAW-1.1: embed resolution constants
+        f.write(f"time_res,{c['TIME_RES']}\n")
+        f.write(f"freq_res,{c['FREQ_RES']}\n")
+        f.write(f"amp_time_res,{c['AMP_TIME_RES']}\n")
+        f.write(f"amp_freq_res,{c['AMP_FREQ_RES']}\n")
         f.write("data\n")
 
         for i in sorted(indices_to_write):
@@ -296,6 +330,8 @@ def run(
     if verbose:
         print(f"[sraw_ops] Reading A: {input_a}")
     a = stream_read_dense_sraw(input_a, c)
+    # Use per-file constants from input A for output
+    c = a["constants"]
 
     b = None
     if op in ("sum", "mul"):
@@ -340,11 +376,13 @@ def run(
         a_re, a_im = resample_dense(a, x_out)
         b_re, b_im = resample_dense(b, x_out)
 
-        re = a_re * b_re - a_im * b_im
-        im = a_re * b_im + a_im * b_re
-
-        out_re = re / c["AMP_INT_MAX"]
-        out_im = im / c["AMP_INT_MAX"]
+        # I campioni sono in interi SRAW; il prodotto è in interi^2.
+        # Per riportarlo in interi SRAW occorre moltiplicare per AMP_TIME_RES
+        # (equivalente a dividere per 1/AMP_TIME_RES = 100000), non per
+        # 1/AMP_INT_MAX = 1/500000 che introdurrebbe un fattore 5 di errore.
+        amp = c["AMP_TIME_RES"]
+        out_re = (a_re * b_re - a_im * b_im) * amp
+        out_im = (a_re * b_im + a_im * b_re) * amp
 
         comment = (
             f"Operation: mul\n"
@@ -393,6 +431,16 @@ def run(
             f"Output axis_mode: {out_axis_mode}"
         )
 
+    elif op == "conj":
+        out_re, out_im = resample_dense(a, x_out)
+        out_im = -out_im
+        comment = (
+            f"Operation: conj\n"
+            f"A: {Path(input_a).name}\n"
+            f"Rule: y(x)=conj(A(x))\n"
+            f"Output axis_mode: {out_axis_mode}"
+        )
+
     elif op == "dilate_x":
         out_re, out_im = resample_dense(a, x_out / dilate_factor)
         comment = (
@@ -422,7 +470,7 @@ def main():
     parser.add_argument(
         "--op",
         required=True,
-        choices=["sum", "mul", "gain", "shift", "mirror_y", "dilate_x"],
+        choices=["sum", "mul", "gain", "shift", "mirror_y", "conj", "dilate_x"],
         help="Operation to execute"
     )
     parser.add_argument("--input-b", help="Input B .sraw (required for sum / mul)")

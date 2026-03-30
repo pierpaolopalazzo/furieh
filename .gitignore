@@ -1,0 +1,84 @@
+*.old.*
+
+CLAUDE.md
+
+.claude/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribuzione / Pacchetti
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Ambienti Virtuali
+venv/
+.venv/
+env/
+ENV/
+
+# --- Sistema Operativo ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editor e IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Dipendenze (da non caricare mai!) ---
+node_modules/
+bower_components/
+vendor/
+.venv/
+env/
+venv/
+ENV/
+
+# --- Log e Database ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.sqlite
+
+# --- Variabili di Ambiente (Dati sensibili) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Build e Output ---
+dist/
+build/
+out/
+bin/
+obj/
+
+# --- File Temporanei ---
+tmp/
+temp/
+*.tmp
+
+# --- Dataset (1.4 GB di .sraw) ---
+# Ignora tutto tranne tri e rampa (~78K)
+www/data/*
+!www/data/004-tri/
+!www/data/017-rampa/

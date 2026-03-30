@@ -147,16 +147,18 @@ def build_uniform_complex_freq(data, N: int, native_df: float, freq_res: float):
     return fft_grid, out_re + 1j * out_im, "interpolated"
 
 
-def complex_to_ints(cx_array: np.ndarray, quantum: float, amp_max: int):
+def complex_to_ints(cx_array: np.ndarray, quantum: float, amp_max=None):
     """
     Converte un array complesso fisico in interi SRAW usando il quantum indicato.
     Nessuna normalizzazione al picco.
+    amp_max=None means no clipping (SRAW-1.1).
     """
     real_ints = np.round(cx_array.real / quantum).astype(np.int64)
     imag_ints = np.round(cx_array.imag / quantum).astype(np.int64)
 
-    real_ints = np.clip(real_ints, -amp_max, amp_max).astype(np.int32)
-    imag_ints = np.clip(imag_ints, -amp_max, amp_max).astype(np.int32)
+    if amp_max is not None:
+        real_ints = np.clip(real_ints, -amp_max, amp_max)
+        imag_ints = np.clip(imag_ints, -amp_max, amp_max)
 
     return real_ints, imag_ints
 
@@ -176,15 +178,15 @@ def compute_native_df(C):
 
 
 def transform(input_path, output_path, mode="fft", verbose=False, benchmark=False):
-    C = get_constants()
-    N = C["MAX_SAMPLES"]
-    native_freq_res = compute_native_df(C)
-    amp_freq_res = C["AMP_FREQ_RES"]
-
     if verbose:
         print(f"[transformer] Reading: {input_path}, mode={mode}")
 
-    data = read_sraw(input_path)
+    data, C = read_sraw(input_path)
+    N = C["MAX_SAMPLES"]
+    native_freq_res = compute_native_df(C)
+    amp_freq_res = C["AMP_FREQ_RES"]
+    amp_max = C["AMP_INT_MAX"]  # None for SRAW-1.1
+
     _, uniform_int, extraction_method = build_uniform_complex(data, N)
 
     if mode in ("fft", "dft"):
@@ -205,7 +207,7 @@ def transform(input_path, output_path, mode="fft", verbose=False, benchmark=Fals
         real_out, imag_out = complex_to_ints(
             spectrum_f,
             quantum=amp_freq_res,
-            amp_max=C["AMP_INT_MAX"]
+            amp_max=amp_max
         )
 
         # I bin FFT k hanno frequenza fisica k * native_df.
@@ -246,7 +248,7 @@ def transform(input_path, output_path, mode="fft", verbose=False, benchmark=Fals
         real_out, imag_out = complex_to_ints(
             signal_t,
             quantum=C["AMP_TIME_RES"],
-            amp_max=C["AMP_INT_MAX"]
+            amp_max=amp_max
         )
 
         # Analogo al forward: i bin IFFT k corrispondono all'indice tempo
@@ -270,7 +272,7 @@ def transform(input_path, output_path, mode="fft", verbose=False, benchmark=Fals
         f"amp_time_res={C['AMP_TIME_RES']}, amp_freq_res={amp_freq_res}"
     )
 
-    write_sraw(data_out, output_path, comment=comment)
+    write_sraw(data_out, output_path, comment=comment, constants=C)
 
     if verbose or benchmark:
         print(

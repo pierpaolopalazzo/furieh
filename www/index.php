@@ -19,6 +19,34 @@ if (($_GET['action'] ?? '') === 'filemgr_json') {
     exit;
 }
 
+// ── JSON API: operazioni file manager (POST) ────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST'
+    && in_array($_POST['tool'] ?? '', ['filemgr_mkdir', 'filemgr_rename', 'filemgr_move', 'filemgr_delete'], true)
+    && (isset($_SERVER['HTTP_X_REQUESTED_WITH']) || str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json'))
+) {
+    header('Content-Type: application/json; charset=UTF-8');
+    try {
+        $tool = $_POST['tool'];
+        if ($tool === 'filemgr_mkdir') {
+            $created = create_subdir($_POST['parent_dir'] ?? '', $_POST['new_dir_name'] ?? '');
+            echo json_encode(['ok' => true, 'message' => "Cartella creata: $created"]);
+        } elseif ($tool === 'filemgr_rename') {
+            $renamed = rename_data_item($_POST['target_rel'] ?? '', $_POST['new_name'] ?? '');
+            echo json_encode(['ok' => true, 'message' => "Rinominato: $renamed"]);
+        } elseif ($tool === 'filemgr_move') {
+            $moved = move_data_item($_POST['source_rel'] ?? '', $_POST['target_dir'] ?? '');
+            echo json_encode(['ok' => true, 'message' => "Spostato: $moved"]);
+        } elseif ($tool === 'filemgr_delete') {
+            delete_data_item($_POST['target_rel'] ?? '');
+            echo json_encode(['ok' => true, 'message' => "Cancellato: " . ($_POST['target_rel'] ?? '')]);
+        }
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 require __DIR__ . '/inc/actions.php';
 
 $sraw_files       = list_sraw();
@@ -45,7 +73,6 @@ $all_dirs         = list_recursive_dirs();
 <nav class="app-nav">
   <a class="app-btn" href="viewer/index.html" target="_blank">▸ VIEWER</a>
   <a class="app-btn" href="designer/index.html" target="_blank">▸ DESIGNER</a>
-  <button class="app-btn" id="btn-refresh-files" onclick="refreshFileSelects()" title="Ricarica la lista file senza ricaricare la pagina">⟳ Aggiorna file</button>
 </nav>
 
 <main>
@@ -53,6 +80,12 @@ $all_dirs         = list_recursive_dirs();
   <?php require __DIR__ . '/inc/views/cards_mp3.php'; ?>
   <?php require __DIR__ . '/inc/views/cards_processing.php'; ?>
   <?php require __DIR__ . '/inc/views/card_file_manager.php'; ?>
+
+  <div class="card full" style="opacity:0.5">
+    <h2>Parametri formato</h2>
+    <label>Max campioni</label>
+    <input type="text" value="2000000" disabled>
+  </div>
 </main>
 
 
@@ -62,8 +95,6 @@ $all_dirs         = list_recursive_dirs();
 // sraw-select, mp3-select, dir-select, mgr-select senza ricaricare la pagina.
 
 async function refreshFileSelects() {
-  const btn = document.getElementById('btn-refresh-files');
-  if (btn) { btn.textContent = '⟳ …'; btn.disabled = true; }
 
   let data;
   try {
@@ -71,11 +102,9 @@ async function refreshFileSelects() {
     data = await res.json();
   } catch (e) {
     console.error('refreshFileSelects fetch error', e);
-    if (btn) { btn.textContent = '⟳ Aggiorna file'; btn.disabled = false; }
     return;
   }
   if (!data.ok) {
-    if (btn) { btn.textContent = '⟳ Aggiorna file'; btn.disabled = false; }
     return;
   }
 
@@ -150,7 +179,7 @@ async function refreshFileSelects() {
     rebuildSelect(sel, entries, e => e, '— nessun elemento —');
   });
 
-  if (btn) { btn.textContent = '⟳ Aggiorna file'; btn.disabled = false; }
+  if (typeof syncAllOutputDirs === 'function') syncAllOutputDirs();
 }
 
 // Refresh automatico al focus su qualsiasi select dinamico
@@ -162,6 +191,82 @@ document.addEventListener('focusin', e => {
 
 // Refresh iniziale al caricamento della pagina
 window.addEventListener('DOMContentLoaded', refreshFileSelects);
+
+// ── Auto-prepend cartella sorgente nell'output ──────────────────────────────
+function _getDir(filepath) {
+  const i = filepath.lastIndexOf('/');
+  return i > 0 ? filepath.substring(0, i + 1) : '';
+}
+
+function syncOutputDir(selectEl) {
+  const form = selectEl.closest('form');
+  if (!form) return;
+  const out = form.querySelector('input[name="output_sraw"], input[name="output_mp3"]');
+  if (!out) return;
+  const dir = _getDir(selectEl.value);
+  const basename = out.value.replace(/^.*\//, '');
+  out.value = dir + basename;
+}
+
+function syncAllOutputDirs() {
+  document.querySelectorAll('select[name="input_mp3"], select[name="input_sraw"], select[name="input_a"]')
+    .forEach(sel => { if (sel.value) syncOutputDir(sel); });
+}
+
+document.addEventListener('change', function (e) {
+  const sel = e.target;
+  if (!sel.matches('select')) return;
+  if (['input_mp3', 'input_sraw', 'input_a'].includes(sel.name)) {
+    syncOutputDir(sel);
+  }
+});
+
+// ── Setup MP3: persistenza cookie ───────────────────────────────────────────
+(function () {
+  const COOKIE_DAYS = 365 * 5;
+
+  function setCookie(name, value) {
+    document.cookie = name + '=' + encodeURIComponent(value) +
+      ';max-age=' + (COOKIE_DAYS * 86400) + ';path=/;SameSite=Lax';
+  }
+  function getCookie(name) {
+    const m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  // ffmpeg path
+  const ffmpegInput = document.getElementById('setup-ffmpeg-path');
+  if (ffmpegInput) {
+    ffmpegInput.value = getCookie('ffmpeg_path') || '';
+    ffmpegInput.addEventListener('change', function () {
+      setCookie('ffmpeg_path', this.value.trim());
+      syncFfmpegHidden();
+    });
+  }
+
+  function syncFfmpegHidden() {
+    const val = ffmpegInput ? ffmpegInput.value.trim() : '';
+    document.querySelectorAll('.ffmpeg-path-hidden').forEach(h => { h.value = val; });
+  }
+
+  // sample rate
+  const srSelect = document.getElementById('setup-sample-rate');
+  if (srSelect) {
+    const saved = getCookie('mp3_sample_rate');
+    if (saved && [...srSelect.options].some(o => o.value === saved)) {
+      srSelect.value = saved;
+    }
+    srSelect.addEventListener('change', function () {
+      setCookie('mp3_sample_rate', this.value);
+    });
+  }
+
+  // sync hidden fields on page load and before form submit
+  syncFfmpegHidden();
+  document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('submit', syncFfmpegHidden);
+  });
+})();
 </script>
 </body>
 </html>

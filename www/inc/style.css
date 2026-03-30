@@ -229,7 +229,128 @@ audio {
   margin-top: 14px;
 }
 
+/* ── File Manager ──────────────────────────────────────────────────────────── */
+
+.fm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.fm-btn {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.fm-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.fm-path {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+.fm-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.fm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fm-row {
+  transition: background 0.1s;
+}
+.fm-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.fm-cell-name {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 5px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+  width: 100%;
+}
+.fm-row-dir .fm-cell-name { color: var(--accent); }
+.fm-row-file .fm-cell-name { color: var(--text); }
+
+.fm-icon { color: var(--accent); }
+
+.fm-cell-actions {
+  padding: 5px 8px;
+  white-space: nowrap;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 0.15s;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.fm-row:hover .fm-cell-actions {
+  opacity: 1;
+}
+
+.fm-icon-dir,
+.fm-icon-file {
+  margin-right: 4px;
+}
+
+.fm-action-btn {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.fm-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.fm-action-danger:hover {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+.fm-empty {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 12px 8px;
+}
+
+.fm-status {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  min-height: 1.2em;
+  margin-top: 8px;
+}
+.fm-ok  { color: var(--accent); }
+.fm-err { color: var(--accent2); }
+
 @media (max-width: 860px) {
   main { grid-template-columns: 1fr; padding: 0 16px; }
   header, .app-nav { padding: 16px; }
+  .filemgr-grid { grid-template-columns: 1fr; }
 }

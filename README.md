@@ -8,10 +8,10 @@
 
 `furiè UniFG` è un toolkit didattico basato su:
 
-- formato testuale `SRAW-1`
+- formato testuale `SRAW-1` / `SRAW-1.1`
 - tool Python per conversione, trasformate e operazioni sui segnali
-- launcher web PHP
-- viewer e designer HTML/JavaScript
+- launcher web PHP con file manager interattivo
+- viewer e designer HTML/JavaScript con popup coordinate
 
 Il progetto è pensato per studio, sperimentazione, visualizzazione e manipolazione di segnali nel dominio del tempo e della frequenza.
 
@@ -28,11 +28,12 @@ fourier_unifg/
 
 In particolare:
 
-- `conf/sraw.conf` contiene le costanti primitive del formato
+- `conf/sraw.conf` contiene `MAX_SAMPLES` (unico parametro globale residuo)
 - `python_tools/` contiene i tool CLI Python
-- `www/index.php` è il launcher principale
-- `www/viewer/` contiene il visualizzatore
-- `www/designer/` contiene il disegnatore di segnali
+- `www/index.php` è il launcher principale con file manager interattivo
+- `www/viewer/` contiene il visualizzatore con popup coordinate
+- `www/designer/` contiene il disegnatore di segnali con popup coordinate
+- `www/shared/sraw_shared.js` libreria JS condivisa tra viewer e designer
 - `www/data/` è il deposito condiviso di file `.sraw` e `.mp3`
 
 ---
@@ -45,24 +46,20 @@ Il repository contiene già un ambiente funzionante per:
 - conversione `SRAW -> MP3`
 - `FFT / DFT / IFFT / IDFT`
 - convoluzione, correlazione, cross-correlazione
-- operazioni elementari sui file SRAW
-- visualizzazione grafica nel browser
+- operazioni elementari sui file SRAW (somma, prodotto, gain, shift, specchio, coniugazione, dilatazione)
+- visualizzazione grafica nel browser con popup coordinate e dot
 - generazione guidata di segnali di test
-- gestione file e cartelle nell’area dati condivisa
+- file manager interattivo DHTML/JavaScript con navigazione cartelle, viewer/designer integrati
 
 ---
 
-## Formato SRAW-1
+## Formato SRAW
 
-`SRAW-1` è un formato testuale a tripla colonna:
+Il formato SRAW è un formato testuale a tripla colonna (ascissa intera, parte reale intera, parte immaginaria intera). Il file non dichiara da solo se rappresenti un segnale nel dominio del tempo oppure della frequenza.
 
-- ascissa intera
-- parte reale intera
-- parte immaginaria intera
+### SRAW-1 (legacy)
 
-Il file non dichiara da solo se rappresenti un segnale nel dominio del tempo oppure della frequenza: questa interpretazione viene scelta dal tool che lo legge o dal viewer.
-
-Struttura:
+Struttura minimale senza costanti incorporate. Le risoluzioni venivano lette da `sraw.conf`:
 
 ```text
 SRAW-1
@@ -72,36 +69,42 @@ data
 ...
 ```
 
----
+Risoluzione ampiezza: 10 µV (int32, range ±500.000 = ±5 V).
 
-## Specifiche correnti del formato
+### SRAW-1.1 (corrente)
 
-Le costanti primitive correnti sono definite in:
+Il file incorpora le proprie costanti di risoluzione nell’header, prima della sezione `data`:
 
 ```text
-conf/sraw.conf
+SRAW-1
+axis_mode,<positive|symmetric>
+time_res,0.0000125
+freq_res,0.01
+amp_time_res,0.000000001
+amp_freq_res,0.000000001
+data
+<x_index>,<real_int>,<imag_int>
+...
 ```
 
-Valori correnti:
+Risoluzione ampiezza: **1 nV** (int64, **nessun limite di range verticale**).
 
-| Parametro                | Valore      |
-| ------------------------ | -----------:|
-| `MAX_SAMPLES`            | 2.000.000   |
-| `TIME_RESOLUTION_S`      | 0.0000125 s |
-| `FREQ_RESOLUTION_HZ`     | 0.01 Hz     |
-| `AMP_TIME_RESOLUTION_V`  | 0.00001 V   |
-| `AMP_FREQ_RESOLUTION_VS` | 0.00001 Vs  |
+Il riconoscimento è automatico: se le direttive `time_res`, `freq_res`, `amp_time_res`, `amp_freq_res` sono presenti nell’header, il file è 1.1; altrimenti è trattato come legacy 1.0 con i vecchi valori (10 µV, ±5 V).
 
-Interpretazione pratica:
+L’estensione `.sraw` resta invariata.
 
-| Grandezza                         | Significato            |
-| --------------------------------- | ---------------------- |
-| Risoluzione temporale             | 12,5 µs per indice     |
-| Risoluzione in frequenza          | 10 mHz per indice      |
-| Risoluzione ampiezza nel tempo    | 10 µV per step intero  |
-| Risoluzione ampiezza in frequenza | 10 µVs per step intero |
+### Specifiche correnti
 
-Con tali specifiche si ottiene un regime molto comodo per la didattica e per la banda audio, ma non l’autodualità perfetta.
+| Parametro          | SRAW-1 (legacy) | SRAW-1.1 (corrente) |
+| ------------------ | ---------------: | -------------------: |
+| `time_res`         |     0.0000125 s  |        0.0000125 s   |
+| `freq_res`         |         0.01 Hz  |            0.01 Hz   |
+| `amp_time_res`     |      0.00001 V   |     0.000000001 V    |
+| `amp_freq_res`     |      0.00001 Vs  |     0.000000001 Vs   |
+| Range ampiezza     |         ±5 V     |        illimitato    |
+| Tipo intero        |         int32    |            int64     |
+
+`MAX_SAMPLES = 2.000.000` resta definito in `conf/sraw.conf` (unico parametro globale).
 
 ---
 
@@ -149,41 +152,43 @@ Relazioni:
 - `fs = 1 / dt = 10 kHz`
 - banda di Nyquist: `±5 kHz`
 
-
-
 ---
 
 ## Esempi SRAW
 
-### rect(t)
+### rect(t) — SRAW-1.1
 
 Porta rettangolare centrata, durata 1 s, altezza 1 V:
 
 ```text
 SRAW-1
 axis_mode,symmetric
+time_res,0.0000125
+freq_res,0.01
+amp_time_res,0.000000001
+amp_freq_res,0.000000001
 data
--1000000,0,0
 -40001,0,0
--40000,100000,0
-40000,100000,0
+-40000,1000000000,0
+40000,1000000000,0
 40001,0,0
-1000000,0,0
 ```
 
-### tri(t)
+### tri(t) — SRAW-1.1
 
 Porta triangolare centrata, durata 1 s, altezza 1 V:
 
 ```text
 SRAW-1
 axis_mode,symmetric
+time_res,0.0000125
+freq_res,0.01
+amp_time_res,0.000000001
+amp_freq_res,0.000000001
 data
--1000000,0,0
 -40000,0,0
-0,100000,0
+0,1000000000,0
 40000,0,0
-1000000,0,0
 ```
 
 ---
@@ -203,30 +208,21 @@ Installazione minima lato Python:
 pip install numpy
 ```
 
-`ffmpeg` può essere installato nel sistema oppure usato in modalità portable, purché il relativo percorso sia configurato in `conf/sraw.conf`.
+`ffmpeg` può essere installato nel sistema oppure usato in modalità portable. Il percorso può essere configurato dall'interfaccia web (sezione Setup MP3) oppure passato via CLI con `--ffmpeg-path`.
 
 ---
 
 ## Configurazione
 
-Aprire:
+### Formato SRAW
 
-```text
-conf/sraw.conf
-```
+`conf/sraw.conf` contiene solo `MAX_SAMPLES` (numero massimo di campioni per file). Le costanti di risoluzione (tempo, frequenza, ampiezza) sono incorporate in ciascun file `.sraw` (SRAW-1.1). I file legacy senza costanti incorporate vengono letti con i vecchi valori SRAW-1.
 
-e verificare almeno:
+### ffmpeg e sample rate MP3
 
-- `FFMPEG_PATH`
-- parametri primitivi del formato SRAW
-- eventuali parametri di export audio
+Il percorso di `ffmpeg` e il sample rate di export MP3 si configurano dall'interfaccia web (sezione Setup MP3). I valori vengono salvati come cookie nel browser e passati automaticamente ai tool Python.
 
-Esempio:
-
-```ini
-FFMPEG_PATH=C:\Users\ppp\Desktop\ffmpeg\ffmpeg.exe
-MP3_EXPORT_SAMPLE_RATE_HZ=44100
-```
+Da CLI i tool accettano anche argomenti diretti (`--ffmpeg-path`, `--sample-rate`) che hanno priorità su qualsiasi altro default.
 
 ---
 
@@ -258,7 +254,7 @@ Indicativamente:
 pip install numpy
 ```
 
-Più `ffmpeg` disponibile e correttamente configurato.
+Più `ffmpeg` disponibile nel PATH o configurato dall'interfaccia web.
 
 ---
 
@@ -275,6 +271,7 @@ Argomenti principali:
 - `--channel L`
 - `--channel R`
 - `--channel MIX`
+- `--ffmpeg-path /path/to/ffmpeg`
 
 ---
 
@@ -292,6 +289,8 @@ Argomenti principali:
 - `--part real`
 - `--part imag`
 - `--part modulus`
+- `--sample-rate 44100`
+- `--ffmpeg-path /path/to/ffmpeg`
 
 Nota: il tool è pensato per segnali nel dominio del tempo e tempo positivo.
 
@@ -389,6 +388,12 @@ Unità possibili:
 python sraw_ops.py a.sraw out.sraw --op mirror_y -v -b
 ```
 
+#### Coniugazione
+
+```bash
+python sraw_ops.py a.sraw out.sraw --op conj -v -b
+```
+
 #### Dilatazione asse X
 
 ```bash
@@ -408,21 +413,22 @@ Funzioni attuali:
 - conversione MP3/SRAW
 - trasformate
 - convoluzione e correlazioni
-- operazioni SRAW
-- refresh dinamico delle liste file
-- gestione file e cartelle nell’area dati
+- operazioni SRAW (somma, prodotto, gain, shift, specchio, coniugazione, dilatazione)
+- file manager interattivo con navigazione cartelle, icone, rinomina, sposta, elimina
+- apertura diretta di file nel viewer e designer dal file manager
+- configurazione ffmpeg e sample rate MP3 con persistenza cookie
 
 ---
 
 ### File manager integrato
 
-Il file manager opera dentro `www/data/` e consente:
+Il file manager è un componente DHTML/JavaScript interattivo che opera dentro `www/data/`:
 
-- creazione cartelle
-- rinomina file e cartelle
-- spostamento file e cartelle
-- cancellazione
-- gestione dei file `.sraw` e `.mp3`
+- navigazione cartelle con click singolo
+- icone distinte per cartelle, file `.sraw` e file `.mp3`
+- creazione cartelle, rinomina, spostamento, cancellazione
+- pulsanti di apertura diretta nel viewer e nel designer per i file `.sraw`
+- comunicazione con il backend PHP via API JSON (fetch)
 
 ---
 
@@ -430,22 +436,18 @@ Il file manager opera dentro `www/data/` e consente:
 
 Funzioni principali:
 
-- apertura file `.sraw`
-- visualizzazione di:
-  - parte reale
-  - parte immaginaria
-  - modulo
-  - fase
-- switch dominio:
-  - tempo
-  - frequenza
-- zoom e pan
+- apertura file `.sraw` (da browser integrato o via parametro `?file=`)
+- visualizzazione di parte reale, immaginaria, modulo, fase
+- switch dominio tempo / frequenza
+- zoom e pan con mouse
+- popup coordinate con dot sul punto del segnale (segue il mouse)
+- riconoscimento automatico SRAW-1 / SRAW-1.1
 
 ---
 
 ### Designer `www/designer/index.html`
 
-Il designer consente generazione e salvataggio di segnali di test.
+Il designer consente generazione e salvataggio di segnali di test. Supporta popup coordinate con dot, apertura via `?file=`, e salva in formato SRAW-1.1.
 
 Forme attualmente disponibili:
 
@@ -495,37 +497,94 @@ Limiti noti:
 
 ## Evoluzioni in corso in ordine di priorità
 
-1. ottimizzazioni
-   
-   1. eventuale esternalizzazione in `sraw.conf` delle definizioni del Designer
-   2. eventuale esternalizzazione in `sraw.conf` di parte delle operazioni di `sraw_ops.py`
-   3. ulteriore modularizzazione di `index.php`
+1. ambienti multiutente didattici
 
-2. ambienti multiutente didattici
-   
    1. gestione di **coorti**
    2. **autenticazione**
    3. **modalità amministratore**
    4. separazione degli ambienti di lavoro per singolo studente
    5. eventuale distinzione tra spazio personale, spazio di coorte e spazio docente
 
-3. miglioramenti documentali e metodologici
-   
-   1. chiarimento uniforme della semantica SRAW
-   2. esplicitazione migliore del regime teorico di autodualità perfetta
-   3. documentazione più precisa dei workflow didattici
+2. miglioramenti documentali e metodologici
+
+   1. esplicitazione migliore del regime teorico di autodualità perfetta
+   2. documentazione più precisa dei workflow didattici
+
+---
+
+## Nota sui segnali periodici e sulle “delta” spettrali
+
+Quando si trasforma un segnale periodico ideale, lo spettro teorico non è una curva continua, ma un insieme di righe spettrali, spesso rappresentate come impulsi di Dirac, cioè “delta”.
+
+Questo significa che, nel modello teorico continuo, una sinusoide pura o un’onda periodica non producono un picco largo in frequenza, ma una o più righe concentrate in frequenze esatte.
+
+### Cosa succede nella pratica numerica
+
+Nel software non si osserva mai il segnale per un tempo infinito, ma solo per una durata finita `T_span`.
+
+Per questo motivo, la “delta” ideale non appare come una delta matematica, bensì come un picco finito, la cui altezza dipende anche dalla durata dell’osservazione.
+
+In prima approssimazione:
+
+- più grande è `T_span`
+- più stretto diventa il picco in frequenza
+- più alta diventa la sua sommità
+
+Quindi il valore letto nel bin della `FFT` non coincide direttamente con il coefficiente teorico della serie di Fourier o con il peso della delta ideale.
+
+### Conseguenza importante
+
+Se una riga spettrale teorica ha coefficiente complesso `c_n`, nella trasformata numerica su finestra finita compare un picco che scala come:
+
+```text
+picco_FFT ≈ c_n * T_span
+```
+
+oppure, in forma inversa:
+
+```text
+c_n ≈ picco_FFT / T_span
+```
+
+Questo spiega perché, per segnali periodici, il valore letto nella `FFT` può risultare molto più grande del coefficiente teorico atteso: non è un errore, ma l’effetto naturale della finestra temporale finita.
+
+### Esempio tipico
+
+Per un’onda quadra simmetrica tra `+A` e `-A`, la prima armonica complessa ha modulo teorico:
+
+```text
+|c_1| = 2A / π
+```
+
+Se però il segnale viene osservato per `T_span = 25 s`, allora il picco numerico corrispondente nella trasformata risulta circa:
+
+```text
+picco_FFT ≈ (2A / π) * 25
+```
+
+Per `A = 0.1 V`:
+
+```text
+|c_1| = 0.2 / π ≈ 0.06366
+picco_FFT ≈ 0.06366 * 25 ≈ 1.59
+```
+
+Dunque un picco letto attorno a `1.6` è coerente con il coefficiente teorico, purché si tenga conto del fattore `T_span`.
+
+### In sintesi
+
+Per i segnali periodici conviene distinguere sempre tra:
+
+- coefficiente teorico della riga spettrale
+- altezza numerica del picco nella FFT
+- ampiezza della corrispondente sinusoide nel dominio del tempo
+
+Sono tre quantità collegate, ma non uguali.
+
+Nel toolkit, quando si interpretano gli spettri di segnali periodici, occorre quindi ricordare che le “delta” teoriche vengono visualizzate numericamente come picchi finiti dipendenti dalla finestra di osservazione.
 
 ---
 
 ## Licenza
 
 Questo progetto è distribuito sotto licenza **GPL-3.0-or-later**.
-
-Scelta adatta a un contesto didattico e software, perché consente uso, studio e modifica del codice, mantenendo aperte anche le versioni derivate distribuite.
-
----
-
-## Nota finale
-
-Le costanti definite in `conf/sraw.conf` fanno parte della semantica del formato.  
-Cambiarle senza rigenerare i file `.sraw` esistenti può compromettere la coerenza interna del progetto.

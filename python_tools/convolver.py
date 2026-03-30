@@ -72,12 +72,13 @@ def build_uniform_complex(data: SrawData, N: int):
     return x_grid, out_re + 1j * out_im, "interpolated"
 
 
-def complex_to_ints(cx_array: np.ndarray, quantum: float, amp_max: int):
+def complex_to_ints(cx_array: np.ndarray, quantum: float, amp_max=None):
     real_ints = np.round(cx_array.real / quantum).astype(np.int64)
     imag_ints = np.round(cx_array.imag / quantum).astype(np.int64)
 
-    real_ints = np.clip(real_ints, -amp_max, amp_max).astype(np.int32)
-    imag_ints = np.clip(imag_ints, -amp_max, amp_max).astype(np.int32)
+    if amp_max is not None:
+        real_ints = np.clip(real_ints, -amp_max, amp_max)
+        imag_ints = np.clip(imag_ints, -amp_max, amp_max)
 
     return real_ints, imag_ints
 
@@ -133,19 +134,18 @@ def place_on_output_grid(x_full: np.ndarray, y_full: np.ndarray, N_out: int):
 
 
 def run(input_a, input_b, output_path, mode="conv", domain="time", verbose=False, benchmark=False):
-    C = get_constants()
+    if verbose:
+        print(f"[convolver] Reading A: {input_a}")
+    data_a, C = read_sraw(input_a)
     N = C["MAX_SAMPLES"]
     axis_step, amp_quantum, axis_unit, amp_unit = select_domain_constants(C, domain)
 
-    if verbose:
-        print(f"[convolver] Reading A: {input_a}")
-    data_a = read_sraw(input_a)
     x_a, a_int, method_a = build_uniform_complex(data_a, N)
 
     if mode in ("conv", "xcorr"):
         if verbose:
             print(f"[convolver] Reading B: {input_b}")
-        data_b = read_sraw(input_b)
+        data_b, C_b = read_sraw(input_b)
         x_b, b_int, method_b = build_uniform_complex(data_b, N)
     else:
         data_b = None
@@ -206,7 +206,7 @@ def run(input_a, input_b, output_path, mode="conv", domain="time", verbose=False
         f"Time: {elapsed:.4f}s",
     ])
 
-    write_sraw(data_out, output_path, comment="\n".join(comment_lines))
+    write_sraw(data_out, output_path, comment="\n".join(comment_lines), constants=C)
 
     if verbose or benchmark:
         print(
