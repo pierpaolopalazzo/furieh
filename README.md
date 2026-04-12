@@ -95,14 +95,14 @@ L’estensione `.sraw` resta invariata.
 
 ### Specifiche correnti
 
-| Parametro          | SRAW-1 (legacy) | SRAW-1.1 (corrente) |
-| ------------------ | ---------------: | -------------------: |
-| `time_res`         |     0.0000125 s  |        0.0000125 s   |
-| `freq_res`         |         0.01 Hz  |            0.01 Hz   |
-| `amp_time_res`     |      0.00001 V   |     0.000000001 V    |
-| `amp_freq_res`     |      0.00001 Vs  |     0.000000001 Vs   |
-| Range ampiezza     |         ±5 V     |        illimitato    |
-| Tipo intero        |         int32    |            int64     |
+| Parametro      | SRAW-1 (legacy) | SRAW-1.1 (corrente) |
+| -------------- | ---------------:| -------------------:|
+| `time_res`     | 0.0000125 s     | 0.0000125 s         |
+| `freq_res`     | 0.01 Hz         | 0.01 Hz             |
+| `amp_time_res` | 0.00001 V       | 0.000000001 V       |
+| `amp_freq_res` | 0.00001 Vs      | 0.000000001 Vs      |
+| Range ampiezza | ±5 V            | illimitato          |
+| Tipo intero    | int32           | int64               |
 
 `MAX_SAMPLES = 2.000.000` resta definito in `conf/sraw.conf` (unico parametro globale).
 
@@ -467,6 +467,32 @@ Sono inoltre previste operazioni rapide applicabili in fase di progettazione.
 
 ---
 
+### Gauss-Hamming `www/gauss-hamming/`
+
+Strumento didattico per codifica, trasmissione con errori e decodifica di testo o brevi segnali vocali, con analisi statistica della quantizzazione.
+
+#### Codificatore
+
+- codifica di testo ASCII (max 91 caratteri) o audio MP3/WAV (tagliato a 1 s, ricampionato a 8 kHz mono 16 bit, compresso con vocoder LPC)
+- codifica Hamming(7,4) del payload con possibilità di introdurre errori singoli o multipli nei blocchi (spread, random, mixed)
+- visualizzazione delle forme d'onda NRZ-L e Manchester con navigazione bit e conteggio transizioni
+- salvataggio del segnale originale x(t) e del segnale ricostruito LPC x₁(t) in formato SRAW-1.1
+
+#### Decodificatore
+
+- decodifica di stringhe di bit Hamming(7,4) ricevute, con correzione automatica degli errori a singolo bit
+- ricostruzione del testo ASCII o del segnale audio LPC a partire dai bit corretti
+- evidenziazione dei blocchi con errori rilevati (1 bit corretto, 2+ bit non correggibili)
+- salvataggio del segnale decodificato in formato SRAW-1.1
+
+#### Analisi gaussiana
+
+- analisi statistica (media, deviazione standard, istogramma) dei campioni codificati, sia dell'originale sia del decodificato
+- visualizzazione del numero di livelli di quantizzazione effettivamente utilizzati nel segnale
+- confronto tra distribuzione dei dati originali e decodificati per evidenziare l'effetto della quantizzazione e degli errori di trasmissione
+
+---
+
 ## Workflow didattico tipico
 
 Esempio d’uso consigliato:
@@ -498,7 +524,7 @@ Limiti noti:
 ## Evoluzioni in corso in ordine di priorità
 
 1. ambienti multiutente didattici
-
+   
    1. gestione di **coorti**
    2. **autenticazione**
    3. **modalità amministratore**
@@ -506,7 +532,7 @@ Limiti noti:
    5. eventuale distinzione tra spazio personale, spazio di coorte e spazio docente
 
 2. miglioramenti documentali e metodologici
-
+   
    1. esplicitazione migliore del regime teorico di autodualità perfetta
    2. documentazione più precisa dei workflow didattici
 

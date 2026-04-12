@@ -73,6 +73,7 @@ $all_dirs         = list_recursive_dirs();
 <nav class="app-nav">
   <a class="app-btn" href="viewer/index.html" target="_blank">▸ VIEWER</a>
   <a class="app-btn" href="designer/index.html" target="_blank">▸ DESIGNER</a>
+  <a class="app-btn" href="gauss-hamming/" target="_blank">▸ GAUSS-HAMMING</a>
 </nav>
 
 <main>

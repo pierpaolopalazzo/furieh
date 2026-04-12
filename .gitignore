@@ -4,6 +4,8 @@ CLAUDE.md
 
 .claude/
 
+dataset.zip
+
 # --- Python ---
 __pycache__/
 *.py[cod]
