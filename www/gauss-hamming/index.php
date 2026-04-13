@@ -587,15 +587,21 @@ async function decAudio(){
 
   // Costruisci il JSON per il backend con i bit corrotti dalla textarea
   const bitsForBackend=D.blocks.flat();
-  // Abbiamo bisogno dei metadati LPC (n_frames, sr, ecc.)
-  // Se abbiamo codificato audio in questa sessione, usiamo quei metadati
-  if(!E.audioData||!E.audioData.lpc_meta){
-    addLog('ERRORE: metadati LPC non disponibili.');
-    addLog('Devi prima codificare un audio nel tab Codificatore nella stessa sessione.');
-    return;
+  // Metadati LPC: se disponibili dalla codifica, li usiamo; altrimenti li deriviamo dai dati
+  let audioMeta;
+  if(E.audioData&&E.audioData.lpc_meta){
+    audioMeta=E.audioData;
+  }else{
+    // Parametri costanti del vocoder LPC (lpc_vocoder.py)
+    const BITS_PER_FRAME=77, sr=8000;
+    const payloadBytes=decodedBytes.length;
+    const nFrames=Math.floor(payloadBytes*8/BITS_PER_FRAME);
+    if(nFrames<1){addLog('ERRORE: dati insufficienti per decodifica audio ('+payloadBytes+' byte).');return;}
+    addLog('Metadati LPC ricostruiti dai dati: '+nFrames+' frame, '+payloadBytes+' byte');
+    audioMeta={sr:sr,payload_bytes:payloadBytes,lpc_meta:{n_frames:nFrames,sr:sr,bits_per_frame:BITS_PER_FRAME,total_bits:nFrames*BITS_PER_FRAME,total_bytes:payloadBytes}};
   }
-  const payload={...E.audioData, hamming_bits:bitsForBackend};
-  addLog('Invio al backend per decodifica LPC ('+E.audioData.lpc_meta.n_frames+' frame)...');
+  const payload={...audioMeta, hamming_bits:bitsForBackend};
+  addLog('Invio al backend per decodifica LPC ('+audioMeta.lpc_meta.n_frames+' frame)...');
 
   const fd=new FormData();fd.append('api_action','decode_audio');fd.append('json_data',JSON.stringify(payload));
   try{
